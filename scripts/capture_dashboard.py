@@ -422,6 +422,7 @@ def add_common_auth_args(parser):
     parser.add_argument("--base-url", default=os.getenv("DATAEASE_BASE_URL", ""))
     parser.add_argument("--access-key", default=os.getenv("DATAEASE_ACCESS_KEY", ""))
     parser.add_argument("--secret-key", default=os.getenv("DATAEASE_SECRET_KEY", ""))
+    parser.add_argument("--request-mode", default=os.getenv("DATAEASE_REQUEST_MODE", "auto"), choices=["auto", "gateway", "backend"])
 
 
 def add_runtime_args(parser):
@@ -482,12 +483,49 @@ def parse_args():
     return parser.parse_args(argv)
 
 
+def infer_request_mode(base_url):
+    port = urlparse(base_url).port
+    if port == 8100:
+        return "backend"
+    return "gateway"
+
+
+def resolve_request_mode(args):
+    if getattr(args, "request_mode", "auto") != "auto":
+        return args.request_mode
+    return infer_request_mode(args.base_url)
+
+
 def resolve_runtime_headers(args, ask_auth, target_path, target_payload=None):
+    request_mode = resolve_request_mode(args)
     if getattr(args, "x_de_token", ""):
         return build_token_headers(args.x_de_token), {
             "used_x_de_token": True,
             "used_org_id": "",
             "token_source": "user_supplied",
+            "request_mode": request_mode,
+        }
+
+    if request_mode == "gateway":
+        if getattr(args, "org_id", ""):
+            switch_result = switch_organization(args.base_url, build_headers(ask_auth), args.org_id)
+            switch_data = extract_response_data(switch_result, "切换组织")
+            x_de_token = switch_data.get("token") if isinstance(switch_data, dict) else None
+            if not x_de_token:
+                raise ValueError("切换组织接口未返回 data.token")
+            return build_token_headers(x_de_token), {
+                "used_x_de_token": True,
+                "used_org_id": str(args.org_id),
+                "token_exp": switch_data.get("exp"),
+                "token_source": "switched_org",
+                "request_mode": request_mode,
+            }
+
+        return build_headers(ask_auth), {
+            "used_x_de_token": False,
+            "used_org_id": "",
+            "token_source": "ask_token",
+            "request_mode": request_mode,
         }
 
     if getattr(args, "org_id", ""):
@@ -502,6 +540,7 @@ def resolve_runtime_headers(args, ask_auth, target_path, target_payload=None):
             "used_org_id": str(args.org_id),
             "token_exp": switch_data.get("exp"),
             "token_source": "switched_org",
+            "request_mode": request_mode,
         }
 
     de_token = exchange_de_token(args.base_url, ask_auth, target_path, target_payload)
@@ -509,6 +548,7 @@ def resolve_runtime_headers(args, ask_auth, target_path, target_payload=None):
         "used_x_de_token": True,
         "used_org_id": "",
         "token_source": "apisix_check",
+        "request_mode": request_mode,
     }
 
 
@@ -533,8 +573,13 @@ def command_list_orgs(args, ask_auth):
 
 def command_switch_org(args, ask_auth):
     try:
-        de_token = exchange_de_token(args.base_url, ask_auth, f"/de2api/user/switch/{args.org_id}")
-        switch_result = switch_organization(args.base_url, build_token_headers(de_token), args.org_id)
+        request_mode = resolve_request_mode(args)
+        if request_mode == "gateway":
+            switch_headers = build_headers(ask_auth)
+        else:
+            de_token = exchange_de_token(args.base_url, ask_auth, f"/de2api/user/switch/{args.org_id}")
+            switch_headers = build_token_headers(de_token)
+        switch_result = switch_organization(args.base_url, switch_headers, args.org_id)
         switch_data = extract_response_data(switch_result, "切换组织")
         x_de_token = switch_data.get("token") if isinstance(switch_data, dict) else None
         if not x_de_token:
@@ -546,6 +591,7 @@ def command_switch_org(args, ask_auth):
             "x_de_token": x_de_token,
             "token_exp": switch_data.get("exp"),
             "token_source": "switched_org",
+            "request_mode": request_mode,
         }, 0)
     except Exception as err:
         print_json(error_to_dict("switch_org", err, {"org_id": args.org_id}), 1)

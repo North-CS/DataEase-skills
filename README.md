@@ -38,6 +38,7 @@ cp .env.example .env
 DATAEASE_BASE_URL=https://your-dataease.example.com
 DATAEASE_ACCESS_KEY=
 DATAEASE_SECRET_KEY=
+DATAEASE_REQUEST_MODE=auto
 ```
 
 配置优先级：
@@ -47,6 +48,12 @@ DATAEASE_SECRET_KEY=
 - 仓库根目录 `.env`
 - 脚本默认值
 
+`DATAEASE_REQUEST_MODE` 支持：
+
+- `auto`：自动判断，默认将 `9080` 视为网关入口，`8100` 视为后端直连
+- `gateway`：通过网关访问业务接口，直接使用 `X-DE-ASK-TOKEN`
+- `backend`：直连后端时，先调用 `/de2api/apisix/check` 换取 `X-DE-TOKEN`
+
 ## CLI 用法
 
 ### 1. 查询组织列表
@@ -54,6 +61,7 @@ DATAEASE_SECRET_KEY=
 ```bash
 python3 scripts/capture_dashboard.py list-orgs
 python3 scripts/capture_dashboard.py list-orgs --org-keyword 华东
+python3 scripts/capture_dashboard.py list-orgs --request-mode gateway
 ```
 
 ### 2. 切换组织
@@ -131,6 +139,7 @@ skill 入口提示词定义在 `agents/openai.yaml`，详细行为规则定义�
 - 默认 `extWaitTime=0`
 - 默认 `resultFormat=0`，即 JPEG
 - `resultFormat=1` 表示 PDF
+- 推荐优先使用网关入口，不要直连后端；只有在必须直连后端时才使用 `backend` 模式
 
 ## 验证
 
