@@ -7,7 +7,7 @@
 - 查询指定组织下的仪表板或大屏列表
 - 导出指定仪表板或大屏的截图或 PDF
 
-核心实现位于 `scripts/capture_dashboard.py`，skill 行为定义位于 `SKILL.md`。
+核心实现位于 `scripts/capture_dashboard.py`，本地浏览器截图 helper 位于 `scripts/browser_capture.mjs`，skill 行为定义位于 `SKILL.md`。
 
 ## 目录结构
 
@@ -21,6 +21,7 @@
 │   ├── api.md
 │   └── resource_aliases.json
 └── scripts/
+    ├── browser_capture.mjs
     └── capture_dashboard.py
 ```
 
@@ -32,7 +33,14 @@
 cp .env.example .env
 ```
 
-2. 填写真实配置：
+2. 安装本地截图依赖：
+
+```bash
+npm install
+npx playwright install chromium
+```
+
+3. 填写真实配置：
 
 ```env
 DATAEASE_BASE_URL=https://your-dataease.example.com
@@ -121,6 +129,14 @@ python3 scripts/capture_dashboard.py capture --org-id 1225813472202330112 --reso
 
 导出文件默认保存到 `outputs/` 目录。
 
+`capture` 命令的导出过程不再调用 `/de2api/report/export`。当前实现会：
+
+1. 查询资源树，定位目标 `resourceId`
+2. 获取或切换到可用于前端预览页的 `X-DE-TOKEN`
+3. 打开 `/#/preview?dvId=...` 预览页
+4. 将 token 注入浏览器 `localStorage.user.token`
+5. 等待 `.canvas-container` 渲染完成后导出 JPEG 或 PDF
+
 ## Skill 用法
 
 如果你的运行环境支持 skill manifest，可通过 `agents/openai.yaml` 暴露 skill。推荐的自然语言请求示例：
@@ -140,6 +156,7 @@ skill 入口提示词定义在 `agents/openai.yaml`，详细行为规则定义�
 - 默认 `resultFormat=0`，即 JPEG
 - `resultFormat=1` 表示 PDF
 - 推荐优先使用网关入口，不要直连后端；只有在必须直连后端时才使用 `backend` 模式
+- `capture` 依赖本地 Chromium 浏览器，由 Playwright 驱动
 
 ## 验证
 
@@ -148,4 +165,5 @@ skill 入口提示词定义在 `agents/openai.yaml`，详细行为规则定义�
 ```bash
 python3 -m py_compile scripts/capture_dashboard.py
 python3 scripts/capture_dashboard.py --help
+node scripts/browser_capture.mjs --help
 ```

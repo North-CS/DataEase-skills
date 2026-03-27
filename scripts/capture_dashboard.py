@@ -20,6 +20,7 @@ from urllib.request import Request, urlopen
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ALIAS_FILE = ROOT_DIR / "references" / "resource_aliases.json"
+BROWSER_CAPTURE_SCRIPT = ROOT_DIR / "scripts" / "browser_capture.mjs"
 
 
 class ApiError(Exception):
@@ -274,21 +275,110 @@ def query_resource_tree(base_url, headers, busi_type, resource_table):
     return json.loads(body.decode("utf-8"))
 
 
-def screenshot_resource(base_url, headers, resource_id, busi_type, pixel, ext_wait_time, result_format):
-    url = f"{base_url.rstrip('/')}/de2api/report/export"
-    _, response_headers, body = post_json(
-        url,
-        {
-            "resourceId": resource_id,
-            "busiType": busi_type,
-            "pixel": pixel,
-            "extWaitTime": ext_wait_time,
-            "resultFormat": result_format,
-        },
-        headers,
-        timeout=120,
+def parse_pixel(pixel_text):
+    parts = [part.strip() for part in (pixel_text or "").split("*", 1)]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError("pixel 格式必须是 宽*高，例如 1920*1080")
+    try:
+        width = int(parts[0])
+        height = int(parts[1])
+    except ValueError as err:
+        raise ValueError("pixel 宽高必须是整数") from err
+    if width <= 0 or height <= 0:
+        raise ValueError("pixel 宽高必须大于 0")
+    return width, height
+
+
+def build_preview_url(base_url, resource_id, busi_type):
+    url = f"{base_url.rstrip('/')}/#/preview?dvId={resource_id}&dvType={busi_type}"
+    if (busi_type or "").lower() == "dashboard":
+        url += "&report=true"
+    return url
+
+
+def resolve_capture_token(args, ask_auth, target_path, target_payload=None):
+    request_mode = resolve_request_mode(args)
+    if getattr(args, "x_de_token", ""):
+        return args.x_de_token, {
+            "used_x_de_token": True,
+            "used_org_id": "",
+            "token_source": "user_supplied",
+            "request_mode": request_mode,
+        }
+
+    if getattr(args, "org_id", ""):
+        if request_mode == "gateway":
+            switch_headers = build_headers(ask_auth)
+        else:
+            de_token = exchange_de_token(args.base_url, ask_auth, f"/de2api/user/switch/{args.org_id}")
+            switch_headers = build_token_headers(de_token)
+        switch_result = switch_organization(args.base_url, switch_headers, args.org_id)
+        switch_data = extract_response_data(switch_result, "切换组织")
+        x_de_token = switch_data.get("token") if isinstance(switch_data, dict) else None
+        if not x_de_token:
+            raise ValueError("切换组织接口未返回 data.token")
+        return x_de_token, {
+            "used_x_de_token": True,
+            "used_org_id": str(args.org_id),
+            "token_exp": switch_data.get("exp"),
+            "token_source": "switched_org",
+            "request_mode": request_mode,
+        }
+
+    x_de_token = exchange_de_token(args.base_url, ask_auth, target_path, target_payload)
+    return x_de_token, {
+        "used_x_de_token": True,
+        "used_org_id": "",
+        "token_source": "apisix_check",
+        "request_mode": request_mode,
+    }
+
+
+def run_browser_capture(preview_url, x_de_token, pixel, ext_wait_time, result_format, output_path):
+    if shutil.which("node") is None:
+        raise RuntimeError("当前环境缺少 node 命令，无法执行本地浏览器截图")
+    if not BROWSER_CAPTURE_SCRIPT.exists():
+        raise RuntimeError(f"未找到浏览器截图脚本: {BROWSER_CAPTURE_SCRIPT}")
+
+    width, height = parse_pixel(pixel)
+    cmd = [
+        "node",
+        str(BROWSER_CAPTURE_SCRIPT),
+        "--url",
+        preview_url,
+        "--token",
+        x_de_token,
+        "--width",
+        str(width),
+        "--height",
+        str(height),
+        "--wait-seconds",
+        str(ext_wait_time),
+        "--result-format",
+        str(result_format),
+        "--output",
+        str(output_path),
+    ]
+    proc = subprocess.run(
+        cmd,
+        cwd=str(ROOT_DIR),
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    return response_headers, body
+    stdout = proc.stdout.strip()
+    stderr = proc.stderr.strip()
+    if proc.returncode != 0:
+        detail = stderr or stdout or "浏览器截图失败"
+        raise RuntimeError(detail)
+    if not output_path.exists():
+        raise RuntimeError("浏览器截图命令执行成功，但未生成输出文件")
+    if stdout:
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError:
+            return {"raw_output": stdout}
+    return {}
 
 
 def score_resource(item, query):
@@ -644,7 +734,8 @@ def command_list_resources(args, ask_auth):
 def command_capture(args, ask_auth):
     try:
         request_payload = {"busiFlag": args.busi_type, "resourceTable": args.resource_table}
-        headers, runtime_info = resolve_runtime_headers(args, ask_auth, "/de2api/dataVisualization/tree", request_payload)
+        x_de_token, runtime_info = resolve_capture_token(args, ask_auth, "/de2api/dataVisualization/tree", request_payload)
+        headers = build_token_headers(x_de_token)
         resource_tree = query_resource_tree(args.base_url, headers, args.busi_type, args.resource_table)
         resources = flatten_tree(extract_tree_nodes(resource_tree))
 
@@ -670,14 +761,19 @@ def command_capture(args, ask_auth):
             resolved_query = resolved["resolved_query"]
             candidates = resolved["candidates"]
 
-        response_headers, body = screenshot_resource(
-            args.base_url,
-            headers,
-            target["id"],
-            args.busi_type,
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r"[^\w\u4e00-\u9fff-]+", "_", target["name"]).strip("_") or "capture"
+        ext = guess_extension(args.result_format, "")
+        output_path = (output_dir / f"{safe_name}_{target['id']}{ext}").resolve()
+        preview_url = build_preview_url(args.base_url, target["id"], args.busi_type)
+        browser_result = run_browser_capture(
+            preview_url,
+            x_de_token,
             args.pixel,
             args.ext_wait_time,
             args.result_format,
+            output_path,
         )
     except Exception as err:
         extra = {
@@ -689,13 +785,6 @@ def command_capture(args, ask_auth):
             extra["resource_id"] = args.resource_id
         print_json(error_to_dict("capture", err, extra), 1)
 
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = re.sub(r"[^\w\u4e00-\u9fff-]+", "_", target["name"]).strip("_") or "capture"
-    ext = guess_extension(args.result_format, response_headers.get("Content-Type", ""))
-    output_path = (output_dir / f"{safe_name}_{target['id']}{ext}").resolve()
-    output_path.write_bytes(body)
-
     print_json({
         "ok": True,
         "stage": "capture",
@@ -706,8 +795,11 @@ def command_capture(args, ask_auth):
         "pixel": args.pixel,
         "ext_wait_time": args.ext_wait_time,
         "result_format": args.result_format,
+        "preview_url": preview_url,
         "saved_file": str(output_path),
         "candidates": candidates,
+        "capture_engine": "local_playwright",
+        "capture_meta": browser_result,
         **runtime_info,
     }, 0)
 

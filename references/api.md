@@ -29,7 +29,7 @@
 
 ### 本技能的用途
 
-在用户显式提供 `orgId` 时切换组织上下文，并使用响应中的 `data.token` 作为后续资源树和导出接口的 `x-de-token`。
+在用户显式提供 `orgId` 时切换组织上下文，并使用响应中的 `data.token` 作为后续资源树查询和本地预览截图的 `x-de-token`。
 
 ## 3. 查询可视化资源树
 
@@ -60,18 +60,28 @@
 
 通过该接口获取 dashboard 或 dataV 的资源树，并展开为资源列表，供查询和导出使用。
 
-## 4. 导出 PDF 或截图
+## 4. 本地预览截图
 
-### 接口地址
+### 预览页地址
 
-`POST /de2api/report/export`
+- `/#/preview?dvId={resourceId}`
+- 当 `busiType=dashboard` 时追加 `&report=true`
 
-### 请求参数
+### 本技能的用途
 
-- `resourceId`
-- `busiType`
+`capture` 命令不再调用 `/de2api/report/export`，而是：
+
+1. 通过 `/de2api/dataVisualization/tree` 定位目标资源
+2. 获取可用于前端预览页的 `x-de-token`
+3. 打开预览页并将 token 注入 `localStorage.user.token`
+4. 等待 `.canvas-container` 渲染完成后本地导出
+
+### 导出参数
+
 - `pixel`
+  - 浏览器视口大小，格式为 `宽*高`
 - `extWaitTime`
+  - 预览画布可见后额外等待的秒数
 - `resultFormat`
   - `0`：JPEG
   - `1`：PDF
