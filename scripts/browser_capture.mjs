@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 const MAX_DEBUG_LOGS = 20;
 const RENDER_SETTLE_POLL_MS = 500;
 const RENDER_SETTLE_IDLE_MS = 2000;
+const MAX_CAPTURE_VIEWPORT_HEIGHT = 12000;
 
 function printHelp() {
   console.log(`Usage: node scripts/browser_capture.mjs --url <url> --token <x-de-token> --width 1920 --height 1080 --wait-seconds 0 --result-format 0 --output /abs/path/file.jpg
@@ -185,6 +186,79 @@ async function waitForRenderSettled(page, selector, timeout, debugLogs, getPendi
   );
 }
 
+async function expandScrollableCapture(page, selector, viewportWidth, viewportHeight) {
+  return page.evaluate(
+    ({ targetSelector, maxViewportHeight, minViewportHeight, viewportWidth }) => {
+      const canvas = document.querySelector(targetSelector);
+      if (!canvas) {
+        return null;
+      }
+
+      const isScrollable = element => {
+        if (!element) {
+          return false;
+        }
+        const style = window.getComputedStyle(element);
+        const overflowY = style.overflowY;
+        return ['auto', 'scroll', 'overlay'].includes(overflowY) && element.scrollHeight - element.clientHeight > 2;
+      };
+
+      const applyStyle = (element, key, value) => {
+        const styleKey = key;
+        element.style[styleKey] = value;
+      };
+
+      let scrollableAncestor = null;
+      let current = canvas.parentElement;
+      while (current && current !== document.body) {
+        if (isScrollable(current)) {
+          scrollableAncestor = current;
+          break;
+        }
+        current = current.parentElement;
+      }
+
+      const scrollingElement = document.scrollingElement || document.documentElement;
+      const initialRect = canvas.getBoundingClientRect();
+
+      if (scrollableAncestor) {
+        scrollableAncestor.scrollTop = 0;
+        applyStyle(scrollableAncestor, 'overflowY', 'visible');
+        applyStyle(scrollableAncestor, 'height', `${scrollableAncestor.scrollHeight}px`);
+        applyStyle(scrollableAncestor, 'maxHeight', 'none');
+      }
+
+      if (scrollingElement) {
+        scrollingElement.scrollTop = 0;
+      }
+      window.scrollTo(0, 0);
+
+      const rect = canvas.getBoundingClientRect();
+      const fullHeight = Math.max(
+        Math.ceil(rect.height),
+        Math.ceil(canvas.scrollHeight || 0),
+        Math.ceil(scrollableAncestor?.scrollHeight || 0),
+        Math.ceil(document.documentElement.scrollHeight || 0)
+      );
+
+      return {
+        hadScrollableAncestor: Boolean(scrollableAncestor),
+        initialHeight: Math.ceil(initialRect.height),
+        finalHeight: Math.ceil(rect.height),
+        captureHeight: fullHeight,
+        viewportHeight: Math.min(Math.max(fullHeight, minViewportHeight), maxViewportHeight),
+        viewportWidth: viewportWidth
+      };
+    },
+    {
+      targetSelector: selector,
+      maxViewportHeight: MAX_CAPTURE_VIEWPORT_HEIGHT,
+      minViewportHeight: viewportHeight,
+      viewportWidth: viewportWidth
+    }
+  );
+}
+
 async function toPdfBuffer(pngBytes, PDFDocument) {
   const pdfDoc = await PDFDocument.create();
   const image = await pdfDoc.embedPng(pngBytes);
@@ -340,6 +414,21 @@ async function main() {
       debugLogs,
       () => pendingRequests.size
     );
+    const expandedCapture = await expandScrollableCapture(page, selector, width, height);
+    if (expandedCapture?.captureHeight > height) {
+      await page.setViewportSize({
+        width,
+        height: expandedCapture.viewportHeight
+      });
+      await page.waitForTimeout(500);
+      await waitForRenderSettled(
+        page,
+        selector,
+        timeout,
+        debugLogs,
+        () => pendingRequests.size
+      );
+    }
     if (waitSeconds > 0) {
       await page.waitForTimeout(waitSeconds * 1000);
     }
@@ -361,6 +450,7 @@ async function main() {
           width: Math.round(box.width),
           height: Math.round(box.height),
           renderState,
+          expandedCapture,
           output
         }));
         return;
@@ -378,6 +468,7 @@ async function main() {
       width: Math.round(box.width),
       height: Math.round(box.height),
       renderState,
+      expandedCapture,
       output
     }));
   } catch (error) {

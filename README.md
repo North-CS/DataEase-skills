@@ -157,6 +157,8 @@ python3 scripts/capture_dashboard.py capture --org-id 1225813472202330112 --reso
 4. 将 token 注入浏览器 `localStorage.user.token`
 5. 等待 `.canvas-container` 渲染完成后导出 JPEG 或 PDF
 
+如果仪表板存在纵向滚动区域，截图脚本会先尝试展开滚动容器，再按完整内容导出，避免只截到首屏。
+
 ## Skill 用法
 
 如果你的运行环境支持 skill manifest，可通过 `agents/openai.yaml` 暴露 skill。推荐的自然语言请求示例：
