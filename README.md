@@ -46,8 +46,18 @@ npx playwright install chromium
 DATAEASE_BASE_URL=https://your-dataease.example.com
 DATAEASE_ACCESS_KEY=
 DATAEASE_SECRET_KEY=
+DATAEASE_USERNAME=
+DATAEASE_PASSWORD=
+DATAEASE_LOGIN_ORIGIN=0
 DATAEASE_REQUEST_MODE=auto
 ```
+
+两种鉴权方式任选其一：
+
+- `DATAEASE_ACCESS_KEY` + `DATAEASE_SECRET_KEY`
+- `DATAEASE_USERNAME` + `DATAEASE_PASSWORD`
+
+如果同时提供两组配置，脚本优先使用用户名密码登录。
 
 配置优先级：
 
@@ -62,6 +72,8 @@ DATAEASE_REQUEST_MODE=auto
 - `gateway`：通过网关访问业务接口，直接使用 `X-DE-ASK-TOKEN`
 - `backend`：直连后端时，先调用 `/de2api/apisix/check` 换取 `X-DE-TOKEN`
 
+`DATAEASE_LOGIN_ORIGIN` 默认为 `0`，表示本地账号登录；如部署启用了 LDAP 登录，可改为 `1`。
+
 ## CLI 用法
 
 ### 1. 查询组织列表
@@ -70,12 +82,14 @@ DATAEASE_REQUEST_MODE=auto
 python3 scripts/capture_dashboard.py list-orgs
 python3 scripts/capture_dashboard.py list-orgs --org-keyword 华东
 python3 scripts/capture_dashboard.py list-orgs --request-mode gateway
+python3 scripts/capture_dashboard.py list-orgs --username demo --password 'Secret123!'
 ```
 
 ### 2. 切换组织
 
 ```bash
 python3 scripts/capture_dashboard.py switch-org --org-id 1225813472202330112
+python3 scripts/capture_dashboard.py switch-org --org-id 1225813472202330112 --username demo --password 'Secret123!'
 ```
 
 返回结果中会带上 `x_de_token`，后续可用于指定组织上下文。
@@ -99,6 +113,12 @@ python3 scripts/capture_dashboard.py list-resources --org-id 1225813472202330112
 
 ```bash
 python3 scripts/capture_dashboard.py list-resources --x-de-token <token> --busi-type dashboard
+```
+
+也可以直接通过用户名密码登录后查询资源：
+
+```bash
+python3 scripts/capture_dashboard.py list-resources --username demo --password 'Secret123!' --busi-type dashboard
 ```
 
 ### 4. 导出截图或 PDF
@@ -155,6 +175,7 @@ skill 入口提示词定义在 `agents/openai.yaml`，详细行为规则定义�
 - 默认 `extWaitTime=0`
 - 默认 `resultFormat=0`，即 JPEG
 - `resultFormat=1` 表示 PDF
+- `--x-de-token` 可直接复用现成业务 token，此时无需再提供其他鉴权配置
 - 推荐优先使用网关入口，不要直连后端；只有在必须直连后端时才使用 `backend` 模式
 - `capture` 依赖本地 Chromium 浏览器，由 Playwright 驱动
 

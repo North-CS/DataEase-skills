@@ -100,6 +100,17 @@
 - `DATAEASE_BASE_URL`
 - `DATAEASE_ACCESS_KEY`
 - `DATAEASE_SECRET_KEY`
+- `DATAEASE_USERNAME`
+- `DATAEASE_PASSWORD`
+- `DATAEASE_LOGIN_ORIGIN`
+
+### 用户名密码登录方式
+
+- 先通过 `GET /de2api/dekey` 获取前端加密所需的 dekey
+- 使用 dekey 解出 RSA 公钥后，对用户名和密码做 RSA 加密
+- 再调用 `POST /de2api/login/localLogin`
+- 响应中的 `data.token` 可直接作为业务接口和预览页使用的 `x-de-token`
+- `origin=0` 表示本地账号，`origin=1` 表示 LDAP
 
 ### ask-token 生成方式
 

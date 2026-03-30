@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from difflib import SequenceMatcher
@@ -21,6 +22,7 @@ from urllib.request import Request, urlopen
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ALIAS_FILE = ROOT_DIR / "references" / "resource_aliases.json"
 BROWSER_CAPTURE_SCRIPT = ROOT_DIR / "scripts" / "browser_capture.mjs"
+RSA_KEY_SEPARATOR = base64.urlsafe_b64encode(b"-pk_separator-").decode("ascii")
 
 
 class ApiError(Exception):
@@ -240,6 +242,154 @@ def post_json(url, payload, headers, timeout=60):
         raise ApiError(str(err), "POST", url, None, "")
 
 
+def get_bytes(url, headers=None, timeout=60):
+    request = Request(url, headers=dict(headers or {}), method="GET")
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return response.status, dict(response.headers), response.read()
+    except HTTPError as err:
+        body = err.read().decode("utf-8", errors="replace")
+        raise ApiError(str(err), "GET", url, err.code, body)
+    except URLError as err:
+        raise ApiError(str(err), "GET", url, None, "")
+
+
+def request_with_fallback(base_url, method, paths, payload=None, headers=None, timeout=60):
+    last_error = None
+    for path in paths:
+        url = f"{base_url.rstrip('/')}{path}"
+        try:
+            if method == "GET":
+                return get_bytes(url, headers=headers, timeout=timeout)
+            if method == "POST":
+                return post_json(url, payload, headers or {}, timeout=timeout)
+            raise ValueError(f"不支持的请求方法: {method}")
+        except ApiError as err:
+            last_error = err
+            if err.status_code not in (404, None):
+                raise
+    if last_error:
+        raise last_error
+    raise ValueError("未提供可用的请求路径")
+
+
+def fetch_dekey(base_url):
+    _, _, body = request_with_fallback(
+        base_url,
+        "GET",
+        ["/de2api/dekey", "/dekey"],
+        headers={"Accept": "application/json;charset=UTF-8"},
+        timeout=60,
+    )
+    payload = json.loads(body.decode("utf-8"))
+    data = extract_response_data(payload, "dekey")
+    if not isinstance(data, str) or not data:
+        raise ValueError("dekey 接口未返回有效字符串")
+    return data
+
+
+def aes_decrypt(cipher_text, secret_key):
+    if shutil.which("openssl") is None:
+        raise RuntimeError("当前环境缺少 openssl 命令，无法执行账号密码登录加密")
+    secret_key_bytes = secret_key.encode("utf-8")
+    if len(secret_key_bytes) not in (16, 24, 32):
+        raise ValueError("dekey 中的 AES key 长度不合法")
+
+    cmd = [
+        "openssl",
+        "enc",
+        f"-{aes_cipher_name(secret_key)}",
+        "-d",
+        "-base64",
+        "-A",
+        "-nosalt",
+        "-K",
+        secret_key_bytes.hex(),
+        "-iv",
+        b"0000000000000000".hex(),
+    ]
+    proc = subprocess.run(cmd, input=cipher_text.encode("utf-8"), capture_output=True, check=False)
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(stderr or "openssl 解密 dekey 失败")
+    return proc.stdout.decode("utf-8")
+
+
+def split_dekey(dekey):
+    for separator in (RSA_KEY_SEPARATOR, RSA_KEY_SEPARATOR.rstrip("=")):
+        if separator and separator in dekey:
+            parts = dekey.split(separator, 1)
+            if len(parts) == 2 and parts[0] and parts[1]:
+                return parts[0], parts[1]
+    raise ValueError("dekey 格式不符合预期，无法解析公钥信息")
+
+
+def format_public_key(public_key):
+    body = "\n".join(public_key[index:index + 64] for index in range(0, len(public_key), 64))
+    return f"-----BEGIN PUBLIC KEY-----\n{body}\n-----END PUBLIC KEY-----\n"
+
+
+def rsa_encrypt(plain_text, public_key):
+    if shutil.which("openssl") is None:
+        raise RuntimeError("当前环境缺少 openssl 命令，无法执行账号密码登录加密")
+    with tempfile.TemporaryDirectory(prefix="dataease-pubkey-") as tmpdir:
+        key_path = Path(tmpdir) / "public.pem"
+        key_path.write_text(format_public_key(public_key), encoding="utf-8")
+        proc = subprocess.run(
+            ["openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", str(key_path)],
+            input=plain_text.encode("utf-8"),
+            capture_output=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(stderr or "openssl RSA 加密失败")
+        return base64.b64encode(proc.stdout).decode("ascii")
+
+
+def encrypt_login_field(value, dekey):
+    encrypted_public_key, aes_key = split_dekey(dekey)
+    public_key = aes_decrypt(encrypted_public_key, aes_key).strip()
+    if not public_key:
+        raise ValueError("dekey 解密后未得到有效公钥")
+    return rsa_encrypt(value, public_key)
+
+
+def login_with_password(base_url, username, password, login_origin):
+    dekey = fetch_dekey(base_url)
+    payload = {
+        "name": encrypt_login_field(username, dekey),
+        "pwd": encrypt_login_field(password, dekey),
+        "origin": int(login_origin),
+    }
+    _, _, body = request_with_fallback(
+        base_url,
+        "POST",
+        ["/de2api/login/localLogin", "/login/localLogin"],
+        payload=payload,
+        headers={"Accept": "application/json;charset=UTF-8", "Content-Type": "application/json"},
+        timeout=60,
+    )
+    result = json.loads(body.decode("utf-8"))
+    data = extract_response_data(result, "账号密码登录")
+    if not isinstance(data, dict):
+        raise ValueError("账号密码登录接口返回格式不符合预期")
+    mfa = data.get("mfa") or {}
+    if isinstance(mfa, dict) and mfa.get("enabled"):
+        raise ValueError("当前账号开启了 MFA，skill 暂不支持 MFA 登录")
+    if data.get("invalidPwd"):
+        raise ValueError("当前账号需要修改无效密码后才能继续登录")
+    token = data.get("token")
+    if not token:
+        raise ValueError("账号密码登录成功，但接口未返回 token")
+    return {
+        "auth_mode": "password",
+        "x_de_token": token,
+        "token_exp": data.get("exp"),
+        "login_origin": int(login_origin),
+    }
+
+
 def exchange_de_token(base_url, ask_auth, target_path, payload=None, target_method="POST"):
     url = f"{base_url.rstrip('/')}/de2api/apisix/check"
     headers = build_headers(ask_auth)
@@ -296,21 +446,47 @@ def build_preview_url(base_url, resource_id, busi_type):
     return url
 
 
-def resolve_capture_token(args, ask_auth, target_path, target_payload=None):
+def resolve_capture_token(args, auth_context, target_path, target_payload=None):
     request_mode = resolve_request_mode(args)
     if getattr(args, "x_de_token", ""):
         return args.x_de_token, {
             "used_x_de_token": True,
             "used_org_id": "",
             "token_source": "user_supplied",
+            "auth_mode": "token",
+            "request_mode": request_mode,
+        }
+
+    if auth_context.get("auth_mode") == "password":
+        base_token = auth_context["x_de_token"]
+        if getattr(args, "org_id", ""):
+            switch_result = switch_organization(args.base_url, build_token_headers(base_token), args.org_id)
+            switch_data = extract_response_data(switch_result, "切换组织")
+            x_de_token = switch_data.get("token") if isinstance(switch_data, dict) else None
+            if not x_de_token:
+                raise ValueError("切换组织接口未返回 data.token")
+            return x_de_token, {
+                "used_x_de_token": True,
+                "used_org_id": str(args.org_id),
+                "token_exp": switch_data.get("exp"),
+                "token_source": "switched_org",
+                "auth_mode": "password",
+                "request_mode": request_mode,
+            }
+        return base_token, {
+            "used_x_de_token": True,
+            "used_org_id": "",
+            "token_exp": auth_context.get("token_exp"),
+            "token_source": "password_login",
+            "auth_mode": "password",
             "request_mode": request_mode,
         }
 
     if getattr(args, "org_id", ""):
         if request_mode == "gateway":
-            switch_headers = build_headers(ask_auth)
+            switch_headers = build_headers(auth_context)
         else:
-            de_token = exchange_de_token(args.base_url, ask_auth, f"/de2api/user/switch/{args.org_id}")
+            de_token = exchange_de_token(args.base_url, auth_context, f"/de2api/user/switch/{args.org_id}")
             switch_headers = build_token_headers(de_token)
         switch_result = switch_organization(args.base_url, switch_headers, args.org_id)
         switch_data = extract_response_data(switch_result, "切换组织")
@@ -322,14 +498,16 @@ def resolve_capture_token(args, ask_auth, target_path, target_payload=None):
             "used_org_id": str(args.org_id),
             "token_exp": switch_data.get("exp"),
             "token_source": "switched_org",
+            "auth_mode": "ask_token",
             "request_mode": request_mode,
         }
 
-    x_de_token = exchange_de_token(args.base_url, ask_auth, target_path, target_payload)
+    x_de_token = exchange_de_token(args.base_url, auth_context, target_path, target_payload)
     return x_de_token, {
         "used_x_de_token": True,
         "used_org_id": "",
         "token_source": "apisix_check",
+        "auth_mode": "ask_token",
         "request_mode": request_mode,
     }
 
@@ -487,23 +665,54 @@ def guess_extension(result_format, content_type):
 
 
 def load_auth(args):
-    missing = []
     if not args.base_url:
-        missing.append("DATAEASE_BASE_URL")
+        print_json({
+            "ok": False,
+            "stage": "config",
+            "error": "缺少必需配置，请通过命令行参数、系统环境变量或 .env 提供",
+            "missing": ["DATAEASE_BASE_URL"],
+        }, 1)
+
+    if getattr(args, "x_de_token", ""):
+        return {"auth_mode": "token"}
+
+    has_password_auth = bool(args.username or args.password)
+    if has_password_auth:
+        missing = []
+        if not args.username:
+            missing.append("DATAEASE_USERNAME")
+        if not args.password:
+            missing.append("DATAEASE_PASSWORD")
+        if missing:
+            print_json({
+                "ok": False,
+                "stage": "config",
+                "error": "用户名密码登录配置不完整，请同时提供用户名和密码",
+                "missing": missing,
+            }, 1)
+        try:
+            return login_with_password(args.base_url, args.username.strip(), args.password, args.login_origin)
+        except Exception as err:
+            print_json({"ok": False, "stage": "auth", "error": str(err)}, 1)
+
+    missing = []
     if not args.access_key:
         missing.append("DATAEASE_ACCESS_KEY")
     if not args.secret_key:
         missing.append("DATAEASE_SECRET_KEY")
     if missing:
+        missing.extend(["DATAEASE_USERNAME", "DATAEASE_PASSWORD"])
         print_json({
             "ok": False,
             "stage": "config",
-            "error": "缺少必需配置，请通过命令行参数、系统环境变量或 .env 提供",
+            "error": "缺少鉴权配置，请提供 accessKey/secretKey 或 username/password",
             "missing": missing,
         }, 1)
 
     try:
-        return build_ask_auth(args.access_key, args.secret_key)
+        ask_auth = build_ask_auth(args.access_key, args.secret_key)
+        ask_auth["auth_mode"] = "ask_token"
+        return ask_auth
     except Exception as err:
         print_json({"ok": False, "stage": "auth", "error": str(err)}, 1)
 
@@ -512,6 +721,9 @@ def add_common_auth_args(parser):
     parser.add_argument("--base-url", default=os.getenv("DATAEASE_BASE_URL", ""))
     parser.add_argument("--access-key", default=os.getenv("DATAEASE_ACCESS_KEY", ""))
     parser.add_argument("--secret-key", default=os.getenv("DATAEASE_SECRET_KEY", ""))
+    parser.add_argument("--username", default=os.getenv("DATAEASE_USERNAME", ""))
+    parser.add_argument("--password", default=os.getenv("DATAEASE_PASSWORD", ""))
+    parser.add_argument("--login-origin", type=int, default=int(os.getenv("DATAEASE_LOGIN_ORIGIN", "0")))
     parser.add_argument("--request-mode", default=os.getenv("DATAEASE_REQUEST_MODE", "auto"), choices=["auto", "gateway", "backend"])
 
 
@@ -586,19 +798,21 @@ def resolve_request_mode(args):
     return infer_request_mode(args.base_url)
 
 
-def resolve_runtime_headers(args, ask_auth, target_path, target_payload=None):
+def resolve_runtime_headers(args, auth_context, target_path, target_payload=None):
     request_mode = resolve_request_mode(args)
     if getattr(args, "x_de_token", ""):
         return build_token_headers(args.x_de_token), {
             "used_x_de_token": True,
             "used_org_id": "",
             "token_source": "user_supplied",
+            "auth_mode": "token",
             "request_mode": request_mode,
         }
 
-    if request_mode == "gateway":
+    if auth_context.get("auth_mode") == "password":
+        base_token = auth_context["x_de_token"]
         if getattr(args, "org_id", ""):
-            switch_result = switch_organization(args.base_url, build_headers(ask_auth), args.org_id)
+            switch_result = switch_organization(args.base_url, build_token_headers(base_token), args.org_id)
             switch_data = extract_response_data(switch_result, "切换组织")
             x_de_token = switch_data.get("token") if isinstance(switch_data, dict) else None
             if not x_de_token:
@@ -608,18 +822,44 @@ def resolve_runtime_headers(args, ask_auth, target_path, target_payload=None):
                 "used_org_id": str(args.org_id),
                 "token_exp": switch_data.get("exp"),
                 "token_source": "switched_org",
+                "auth_mode": "password",
+                "request_mode": request_mode,
+            }
+        return build_token_headers(base_token), {
+            "used_x_de_token": True,
+            "used_org_id": "",
+            "token_exp": auth_context.get("token_exp"),
+            "token_source": "password_login",
+            "auth_mode": "password",
+            "request_mode": request_mode,
+        }
+
+    if request_mode == "gateway":
+        if getattr(args, "org_id", ""):
+            switch_result = switch_organization(args.base_url, build_headers(auth_context), args.org_id)
+            switch_data = extract_response_data(switch_result, "切换组织")
+            x_de_token = switch_data.get("token") if isinstance(switch_data, dict) else None
+            if not x_de_token:
+                raise ValueError("切换组织接口未返回 data.token")
+            return build_token_headers(x_de_token), {
+                "used_x_de_token": True,
+                "used_org_id": str(args.org_id),
+                "token_exp": switch_data.get("exp"),
+                "token_source": "switched_org",
+                "auth_mode": "ask_token",
                 "request_mode": request_mode,
             }
 
-        return build_headers(ask_auth), {
+        return build_headers(auth_context), {
             "used_x_de_token": False,
             "used_org_id": "",
             "token_source": "ask_token",
+            "auth_mode": "ask_token",
             "request_mode": request_mode,
         }
 
     if getattr(args, "org_id", ""):
-        de_token = exchange_de_token(args.base_url, ask_auth, f"/de2api/user/switch/{args.org_id}")
+        de_token = exchange_de_token(args.base_url, auth_context, f"/de2api/user/switch/{args.org_id}")
         switch_result = switch_organization(args.base_url, build_token_headers(de_token), args.org_id)
         switch_data = extract_response_data(switch_result, "切换组织")
         x_de_token = switch_data.get("token") if isinstance(switch_data, dict) else None
@@ -630,22 +870,24 @@ def resolve_runtime_headers(args, ask_auth, target_path, target_payload=None):
             "used_org_id": str(args.org_id),
             "token_exp": switch_data.get("exp"),
             "token_source": "switched_org",
+            "auth_mode": "ask_token",
             "request_mode": request_mode,
         }
 
-    de_token = exchange_de_token(args.base_url, ask_auth, target_path, target_payload)
+    de_token = exchange_de_token(args.base_url, auth_context, target_path, target_payload)
     return build_token_headers(de_token), {
         "used_x_de_token": True,
         "used_org_id": "",
         "token_source": "apisix_check",
+        "auth_mode": "ask_token",
         "request_mode": request_mode,
     }
 
 
-def command_list_orgs(args, ask_auth):
+def command_list_orgs(args, auth_context):
     try:
         request_payload = {"keyword": args.org_keyword, "desc": True}
-        headers, runtime_info = resolve_runtime_headers(args, ask_auth, "/de2api/org/page/tree", request_payload)
+        headers, runtime_info = resolve_runtime_headers(args, auth_context, "/de2api/org/page/tree", request_payload)
         org_tree = query_org_tree(args.base_url, headers, args.org_keyword)
         org_data = extract_response_data(org_tree, "组织树")
         organizations = flatten_org_tree(org_data)
@@ -661,14 +903,19 @@ def command_list_orgs(args, ask_auth):
         print_json(error_to_dict("org_tree", err, {"base_url": args.base_url}), 1)
 
 
-def command_switch_org(args, ask_auth):
+def command_switch_org(args, auth_context):
     try:
         request_mode = resolve_request_mode(args)
-        if request_mode == "gateway":
-            switch_headers = build_headers(ask_auth)
+        if auth_context.get("auth_mode") == "password":
+            switch_headers = build_token_headers(auth_context["x_de_token"])
+            auth_mode = "password"
+        elif request_mode == "gateway":
+            switch_headers = build_headers(auth_context)
+            auth_mode = "ask_token"
         else:
-            de_token = exchange_de_token(args.base_url, ask_auth, f"/de2api/user/switch/{args.org_id}")
+            de_token = exchange_de_token(args.base_url, auth_context, f"/de2api/user/switch/{args.org_id}")
             switch_headers = build_token_headers(de_token)
+            auth_mode = "ask_token"
         switch_result = switch_organization(args.base_url, switch_headers, args.org_id)
         switch_data = extract_response_data(switch_result, "切换组织")
         x_de_token = switch_data.get("token") if isinstance(switch_data, dict) else None
@@ -681,16 +928,17 @@ def command_switch_org(args, ask_auth):
             "x_de_token": x_de_token,
             "token_exp": switch_data.get("exp"),
             "token_source": "switched_org",
+            "auth_mode": auth_mode,
             "request_mode": request_mode,
         }, 0)
     except Exception as err:
         print_json(error_to_dict("switch_org", err, {"org_id": args.org_id}), 1)
 
 
-def command_list_resources(args, ask_auth):
+def command_list_resources(args, auth_context):
     try:
         request_payload = {"busiFlag": args.busi_type, "resourceTable": args.resource_table}
-        headers, runtime_info = resolve_runtime_headers(args, ask_auth, "/de2api/dataVisualization/tree", request_payload)
+        headers, runtime_info = resolve_runtime_headers(args, auth_context, "/de2api/dataVisualization/tree", request_payload)
         resource_tree = query_resource_tree(args.base_url, headers, args.busi_type, args.resource_table)
         resources = [item for item in flatten_tree(extract_tree_nodes(resource_tree)) if item.get("leaf")]
 
@@ -731,10 +979,10 @@ def command_list_resources(args, ask_auth):
         print_json(error_to_dict("resource_list", err, {"busi_type": args.busi_type}), 1)
 
 
-def command_capture(args, ask_auth):
+def command_capture(args, auth_context):
     try:
         request_payload = {"busiFlag": args.busi_type, "resourceTable": args.resource_table}
-        x_de_token, runtime_info = resolve_capture_token(args, ask_auth, "/de2api/dataVisualization/tree", request_payload)
+        x_de_token, runtime_info = resolve_capture_token(args, auth_context, "/de2api/dataVisualization/tree", request_payload)
         headers = build_token_headers(x_de_token)
         resource_tree = query_resource_tree(args.base_url, headers, args.busi_type, args.resource_table)
         resources = flatten_tree(extract_tree_nodes(resource_tree))
@@ -807,16 +1055,16 @@ def command_capture(args, ask_auth):
 def main():
     load_dotenv(ROOT_DIR / ".env")
     args = parse_args()
-    ask_auth = load_auth(args)
+    auth_context = load_auth(args)
 
     if args.command == "list-orgs":
-        command_list_orgs(args, ask_auth)
+        command_list_orgs(args, auth_context)
     elif args.command == "switch-org":
-        command_switch_org(args, ask_auth)
+        command_switch_org(args, auth_context)
     elif args.command == "list-resources":
-        command_list_resources(args, ask_auth)
+        command_list_resources(args, auth_context)
     elif args.command == "capture":
-        command_capture(args, ask_auth)
+        command_capture(args, auth_context)
     else:
         print_json({"ok": False, "stage": "args", "error": f"不支持的命令: {args.command}"}, 1)
 

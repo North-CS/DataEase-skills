@@ -86,16 +86,21 @@ description: 通过自然语言查询 DataEase 组织、切换组织、列出仪
 # 鉴权与安全
 
 - 不要把 `access key`、`secret key` 等敏感凭证硬编码到 skill 文件中
-- 不要要求用户在提问里携带 `base_url`、`access key`、`secret key`
+- 不要要求用户在提问里携带 `base_url`、`access key`、`secret key`、`username`、`password`
 - 本技能通过以下配置读取环境：
   - `DATAEASE_BASE_URL`
   - `DATAEASE_ACCESS_KEY`
   - `DATAEASE_SECRET_KEY`
+  - `DATAEASE_USERNAME`
+  - `DATAEASE_PASSWORD`
+  - `DATAEASE_LOGIN_ORIGIN`
 - 脚本会自动读取仓库根目录 `.env`
-- 当前脚本会根据 `accessKey` 和 `secretKey` 自动生成：
+- 如果提供了 `username` 和 `password`，脚本会先调用 `dekey` 和 `/login/localLogin` 获取 `x-de-token`
+- 如果提供了 `accessKey` 和 `secretKey`，脚本会自动生成：
   - `signature`
   - `x-de-ask-token`
-- 如果已切换组织，则后续查询资源或导出时使用 `x-de-token`
+- 如果已切换组织，则后续查询资源或导出时使用切组织返回的 `x-de-token`
+- 如果用户已提供现成的 `x-de-token`，脚本可直接复用
 
 # 失败处理
 
