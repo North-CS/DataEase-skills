@@ -48,8 +48,8 @@ DATAEASE_USERNAME=admin          # 可选，用于密码登录
 DATAEASE_PASSWORD=your_password  # 可选
 DATAEASE_LOGIN_ORIGIN=0          # 登录源
 
-# ⚠️ 重要：截图输出目录（必须在 OpenClaw workspace 内才能用 MEDIA: 展示）
-DATAEASE_OUTPUT_DIR=/Users/iris/.openclaw/workspace/dataease-output
+# 截图输出目录（必须在 OpenClaw workspace 内才能用 MEDIA: 展示,不输入默认直接在 OpenClaw workspace 内创建）
+DATAEASE_OUTPUT_DIR=/Users/username/.openclaw/workspace/dataease-output
 ```
 
 ### 2. 安装截图依赖
