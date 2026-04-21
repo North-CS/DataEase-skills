@@ -1,6 +1,6 @@
 interface:
-  display_name: "DataEase 组织与资源导出"
-  short_description: "查询组织、切换组织并导出 DataEase 看板或大屏"
-  icon: "camera"
+  display_name: "DataEase 全能技能"
+  short_description: "创建图表看板、查询数据、管理组织、导出截图/PDF"
+  icon: "chart-bar"
   color: "blue"
-  default_prompt: "Use $dataease-resource-skill to list DataEase organizations, switch organization context when needed, list dashboards or big screens, and export the resource I name as an image or PDF file."
+  default_prompt: "Use dataease skill to explore datasets, create charts and dashboards, manage organizations, list resources, and export screenshots or PDFs. Charts are automatically captured and displayed."

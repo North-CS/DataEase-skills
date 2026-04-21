@@ -1,192 +1,108 @@
-# DataEase Skills
+# DataEase V2 全能技能
 
-这个仓库提供一个可直接落地的 DataEase skill，实现以下能力：
+一站式 DataEase 自动化解决方案，融合图表部署与资源管理能力。
 
-- 查询组织列表
-- 切换组织
-- 查询指定组织下的仪表板或大屏列表
-- 导出指定仪表板或大屏的截图或 PDF
+## 🎯 功能特性
 
-核心实现位于 `scripts/capture_dashboard.py`，本地浏览器截图 helper 位于 `scripts/browser_capture.mjs`，skill 行为定义位于 `SKILL.md`。
+| 功能 | 命令 | 说明 |
+|------|------|------|
+| 📊 数据探索 | `inspect_data.py` | 查询数据集、字段信息 |
+| 📈 图表部署 | `deploy.py` | 创建图表并自动截图 |
+| 📋 多图看板 | `multi_deploy.py` | 创建多图表仪表板 |
+| 🏢 组织管理 | `capture_dashboard.py` | 查询/切换组织 |
+| 📑 资源列表 | `capture_dashboard.py` | 列出仪表板/大屏 |
+| 📸 截图导出 | `capture_dashboard.py` | 导出截图或PDF |
 
-## 目录结构
+## 🚀 快速开始
 
-```text
-.
-├── .env.example
-├── SKILL.md
-├── agents/
-│   └── openai.yaml
-├── references/
-│   ├── api.md
-│   └── resource_aliases.json
-└── scripts/
-    ├── browser_capture.mjs
-    └── capture_dashboard.py
-```
-
-## 环境准备
-
-1. 复制环境变量模板：
-
-```bash
-cp .env.example .env
-```
-
-2. 安装本地截图依赖：
+### 1. 安装依赖
 
 ```bash
 npm install
 npx playwright install chromium
 ```
 
-3. 填写真实配置：
+### 2. 配置环境
 
-```env
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件：
+
+```bash
 DATAEASE_BASE_URL=https://your-dataease.example.com
-DATAEASE_ACCESS_KEY=
-DATAEASE_SECRET_KEY=
-DATAEASE_USERNAME=
-DATAEASE_PASSWORD=
+DATAEASE_API_PREFIX=/de2api
+DATAEASE_ACCESS_KEY=your_access_key
+DATAEASE_SECRET_KEY=your_secret_key
+DATAEASE_USERNAME=admin
+DATAEASE_PASSWORD=your_password
 DATAEASE_LOGIN_ORIGIN=0
-DATAEASE_REQUEST_MODE=auto
 ```
 
-两种鉴权方式任选其一：
+**认证方式（二选一）：**
+- AK/SK：配置 `ACCESS_KEY` + `SECRET_KEY`
+- 密码登录：配置 `USERNAME` + `PASSWORD`
 
-- `DATAEASE_ACCESS_KEY` + `DATAEASE_SECRET_KEY`
-- `DATAEASE_USERNAME` + `DATAEASE_PASSWORD`
-
-如果同时提供两组配置，脚本优先使用用户名密码登录。
-
-配置优先级：
-
-- 命令行参数
-- 已导出的系统环境变量
-- 仓库根目录 `.env`
-- 脚本默认值
-
-`DATAEASE_REQUEST_MODE` 支持：
-
-- `auto`：自动判断，默认将 `9080` 视为网关入口，`8100` 视为后端直连
-- `gateway`：通过网关访问业务接口，直接使用 `X-DE-ASK-TOKEN`
-- `backend`：直连后端时，先调用 `/de2api/apisix/check` 换取 `X-DE-TOKEN`
-
-`DATAEASE_LOGIN_ORIGIN` 默认为 `0`，表示本地账号登录；如部署启用了 LDAP 登录，可改为 `1`。
-
-## CLI 用法
-
-### 1. 查询组织列表
+### 3. 使用示例
 
 ```bash
+# 查询数据集
+python3 scripts/inspect_data.py --list-datasets
+
+# 查询字段
+python3 scripts/inspect_data.py --dataset "销售数据"
+
+# 创建图表（自动截图）
+python3 scripts/deploy.py bar '各产品销售额' '销售数据' '产品' '实际销售'
+
+# 创建多图表看板
+python3 scripts/multi_deploy.py '销售分析' '[{"type":"bar","title":"销售","dataset_name":"销售数据","x_axis":["产品"],"y_axis":["销售额"]}]'
+
+# 查询组织
 python3 scripts/capture_dashboard.py list-orgs
-python3 scripts/capture_dashboard.py list-orgs --org-keyword 华东
-python3 scripts/capture_dashboard.py list-orgs --request-mode gateway
-python3 scripts/capture_dashboard.py list-orgs --username demo --password 'Secret123!'
+
+# 导出截图
+python3 scripts/capture_dashboard.py capture --resource-id <ID> --busi-type dashboard --output-dir ./output
+
+# 导出 PDF
+python3 scripts/capture_dashboard.py capture --resource-id <ID> --busi-type dashboard --result-format 1 --output-dir ./output
 ```
 
-### 2. 切换组织
+## 📁 目录结构
 
-```bash
-python3 scripts/capture_dashboard.py switch-org --org-id 1225813472202330112
-python3 scripts/capture_dashboard.py switch-org --org-id 1225813472202330112 --username demo --password 'Secret123!'
+```
+dataease-v2-chart-skill/
+├── SKILL.md              # 技能文档（Agent 读取）
+├── README.md             # 本文档
+├── .env.example          # 环境变量模板
+├── package.json          # Node 依赖
+├── scripts/
+│   ├── inspect_data.py   # 数据探索
+│   ├── deploy.py         # 图表部署
+│   ├── multi_deploy.py   # 多图表部署
+│   ├── engine.py         # 图表引擎
+│   ├── client.py         # API 客户端
+│   ├── capture_dashboard.py  # 截图/资源管理
+│   └── browser_capture.mjs   # 浏览器截图
+├── templates/            # 图表模板
+├── references/           # API 参考
+└── agents/               # Agent 配置
 ```
 
-返回结果中会带上 `x_de_token`，后续可用于指定组织上下文。
+## 📊 支持的图表类型
 
-### 3. 查询指定组织下的仪表板或大屏列表
+- `bar` - 柱状图
+- `line` - 折线图
+- `pie` - 饼图
+- `table_info` - 明细表
 
-已知组织 ID 时，可以直接传 `--org-id`，脚本会先切组织，再查资源：
+## 📸 截图参数
 
-```bash
-python3 scripts/capture_dashboard.py list-resources --org-id 1225813472202330112 --busi-type dashboard
-python3 scripts/capture_dashboard.py list-resources --org-id 1225813472202330112 --busi-type dataV
-```
+- `--pixel`: 分辨率，默认 `1920*1080`，可设 `2560*1440`
+- `--ext-wait-time`: 额外等待秒数
+- `--result-format`: `0`=JPEG, `1`=PDF
 
-按名称过滤候选资源：
+## 📝 许可证
 
-```bash
-python3 scripts/capture_dashboard.py list-resources --org-id 1225813472202330112 --busi-type dashboard --resource-name 销售总览
-```
-
-如果你已经手动执行过 `switch-org`，也可以复用返回的 token：
-
-```bash
-python3 scripts/capture_dashboard.py list-resources --x-de-token <token> --busi-type dashboard
-```
-
-也可以直接通过用户名密码登录后查询资源：
-
-```bash
-python3 scripts/capture_dashboard.py list-resources --username demo --password 'Secret123!' --busi-type dashboard
-```
-
-### 4. 导出截图或 PDF
-
-导出 JPEG：
-
-```bash
-python3 scripts/capture_dashboard.py capture --org-id 1225813472202330112 --resource-name 销售总览 --busi-type dashboard
-```
-
-导出 PDF：
-
-```bash
-python3 scripts/capture_dashboard.py capture --org-id 1225813472202330112 --resource-name 门店运营监控 --busi-type dataV --result-format 1
-```
-
-自定义分辨率和额外等待时间：
-
-```bash
-python3 scripts/capture_dashboard.py capture --org-id 1225813472202330112 --resource-name 华东经营分析 --pixel 1920*1080 --ext-wait-time 5
-```
-
-也可以直接按资源 ID 导出：
-
-```bash
-python3 scripts/capture_dashboard.py capture --org-id 1225813472202330112 --resource-id 1234567890 --busi-type dashboard
-```
-
-导出文件默认保存到 `outputs/` 目录。
-
-`capture` 命令的导出过程不再调用 `/de2api/report/export`。当前实现会：
-
-1. 查询资源树，定位目标 `resourceId`
-2. 获取或切换到可用于前端预览页的 `X-DE-TOKEN`
-3. 打开 `/#/preview?dvId=...` 预览页
-4. 将 token 注入浏览器 `localStorage.user.token`
-5. 等待 `.canvas-container` 渲染完成后导出 JPEG 或 PDF
-
-如果仪表板存在纵向滚动区域，截图脚本会先尝试展开滚动容器，再按完整内容导出，避免只截到首屏。
-
-## Skill 用法
-
-如果你的运行环境支持 skill manifest，可通过 `agents/openai.yaml` 暴露 skill。推荐的自然语言请求示例：
-
-- 查询可用组织列表
-- 切换到华东组织后，列出仪表板
-- 查看“销售总览”看板
-- 导出“门店运营监控”大屏为 pdf
-
-skill 入口提示词定义在 `agents/openai.yaml`，详细行为规则定义在 `SKILL.md`。
-
-## 说明
-
-- 默认业务类型为 `dashboard`
-- 默认分辨率为 `1920*1080`
-- 默认 `extWaitTime=0`
-- 默认 `resultFormat=0`，即 JPEG
-- `resultFormat=1` 表示 PDF
-- `--x-de-token` 可直接复用现成业务 token，此时无需再提供其他鉴权配置
-- 推荐优先使用网关入口，不要直连后端；只有在必须直连后端时才使用 `backend` 模式
-- `capture` 依赖本地 Chromium 浏览器，由 Playwright 驱动
-
-## 验证
-
-可以先做基础检查：
-
-```bash
-python3 -m py_compile scripts/capture_dashboard.py
-python3 scripts/capture_dashboard.py --help
-node scripts/browser_capture.mjs --help
-```
+MIT
