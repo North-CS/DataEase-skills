@@ -25,8 +25,23 @@ ACCESS_KEY = os.environ.get("DATAEASE_ACCESS_KEY")
 SECRET_KEY = os.environ.get("DATAEASE_SECRET_KEY")
 BASE_URL   = os.environ.get("DATAEASE_BASE_URL")
 
-# Screenshot configuration
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output")
+# Screenshot configuration - auto-detect OpenClaw workspace for MEDIA: display
+def _default_output_dir():
+    """优先使用 OpenClaw workspace 目录，否则用 skill 本地 output 目录"""
+    # 1. 环境变量显式指定
+    env_dir = os.environ.get("DATAEASE_OUTPUT_DIR")
+    if env_dir:
+        return env_dir
+    # 2. 自动检测 OpenClaw workspace
+    home = os.path.expanduser("~")
+    workspace_dir = os.path.join(home, ".openclaw", "workspace", "dataease-output")
+    if os.path.isdir(os.path.join(home, ".openclaw", "workspace")):
+        os.makedirs(workspace_dir, exist_ok=True)
+        return workspace_dir
+    # 3. 回退到 skill 本地 output
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output")
+
+OUTPUT_DIR = _default_output_dir()
 DEFAULT_PIXEL = "2560*1440"  # 更高分辨率，图片更清晰
 
 def capture_dashboard(dashboard_id, output_format="jpeg"):
