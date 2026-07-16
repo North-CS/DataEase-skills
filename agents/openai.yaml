@@ -1,6 +1,4 @@
 interface:
-  display_name: "DataEase 全能技能"
-  short_description: "创建图表看板、查询数据、管理组织、导出截图/PDF"
-  icon: "chart-bar"
-  color: "blue"
-  default_prompt: "Use dataease skill to explore datasets, create charts and dashboards, manage organizations, list resources, and export screenshots or PDFs. Charts are automatically captured and displayed."
+  display_name: "DataEase 智能平台助手"
+  short_description: "智能构建大屏，并安全管理 DataEase 数据、认证、集成与自动化"
+  default_prompt: "Use $dataease to inspect this DataEase instance and safely complete my requested analytics, administration, integration, SSO, report, or Webhook operation."

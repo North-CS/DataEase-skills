@@ -1,363 +1,96 @@
 ---
 name: dataease
-description: DataEase V2 全能技能 - 创建图表看板、查询数据集、管理组织、导出截图/PDF。支持柱状图、折线图、饼图、明细表，部署后自动截图展示。
-environment:
-  required:
-    - DATAEASE_ACCESS_KEY
-    - DATAEASE_SECRET_KEY
-    - DATAEASE_BASE_URL
-security:
-  requiresSecrets: true
-  sensitiveEnvironment: true
-  externalNetworkAccess: true
+description: DataEase V2 智能平台技能，通过安全分级 CLI 探索数据并管理 DataEase。Use when Codex, OpenClaw or another Agent Skills-compatible tool needs to inspect or manage data sources, datasets, dashboards, DataV screens, data filling, organizations, users, roles, system settings, email, SSO, DingTalk, WeCom, Lark, scheduled reports or Webhooks; build and capture polished analytics; or diagnose connectivity, authentication, permissions and version compatibility on Windows, Linux or macOS.
 ---
 
-# DataEase V2 全能技能
+# DataEase V2 智能平台技能
 
-一站式 DataEase 自动化解决方案，融合图表部署与资源管理能力。
+一站式完成 DataEase 数据探索、可视化构建、平台管理、认证集成与自动化，并把高风险操作约束在可审计的 dry-run、确认令牌和回读验证流程中。
 
-## 🎯 核心功能
+## 核心能力
 
-| 功能模块 | 命令 | 说明 |
-|---------|------|------|
-| 📊 数据探索 | `inspect_data.py` | 查询数据集列表、字段信息 |
-| 📈 图表部署 | `deploy.py` | 创建单图表并自动截图 |
-| 📋 多图看板 | `multi_deploy.py` | 创建多图表仪表板并自动截图 |
-| 🏢 组织管理 | `capture_dashboard.py list-orgs/switch-org` | 查询/切换组织 |
-| 📑 资源列表 | `capture_dashboard.py list-resources` | 列出仪表板/大屏 |
-| 📸 截图导出 | `capture_dashboard.py capture` | 导出仪表板截图或PDF |
+| 功能模块 | 命令族 | 风险范围 |
+|---|---|---|
+| 连接诊断与平台盘点 | `system`、`inventory` | L0 |
+| 数据源、数据集与智能分析规划 | `datasource`、`dataset` | L0-L3 |
+| 仪表板与 DataV 大屏创建、发布、截图 | `visual` | L0-L3 |
+| 数据填报表单、任务与数据行 | `filling` | L0-L3 |
+| 组织、用户与角色管理 | `admin organization-*`、`role-*`、`user-*` | L0-L3 |
+| 系统设置、邮件、MFA、HMAC 与 SSO | `admin setting-*`、`sso-*` | L0-L3 |
+| 钉钉、企微、飞书和 Larksuite | `admin integration-*` | L0-L3 |
+| 定时报告与 Webhook | `report`、`webhook` | L0-L3 |
 
-## 🎭 沟通风格 (Persona)
+## 执行原则
 
-作为 DataEase 自动化专家：
-1. **执行优先**: 直接运行工具，不预先展示代码
-2. **结果导向**: 优先展示截图，再说明逻辑
-3. **单次往复**: 一次完成从探索到部署的全过程
+1. 先检查实例、组织、版本、能力和目标资源，再设计或修改。
+2. 范围明确的读取操作直接执行；任何写操作先生成 dry-run 计划。
+3. 只执行用户确认的同一 `plan_id`。L3 必须同时提供计划返回的 `confirmation_token`。
+4. 写入后回读目标；大屏和仪表板还要输出预览 URL 与截图/PDF。
+5. 优先使用官方 API，其次使用明确匹配版本的适配器，最后才使用浏览器自动化，并在结果中说明适配器。
 
-## 🚀 环境配置
+## 快速开始
 
-### 1. 配置凭据
-
-复制 `.env.example` 为 `.env`，填写：
-
-```bash
-DATAEASE_BASE_URL=https://your-dataease.example.com
-DATAEASE_ACCESS_KEY=your_access_key
-DATAEASE_SECRET_KEY=your_secret_key
-DATAEASE_USERNAME=admin          # 可选，用于密码登录
-DATAEASE_PASSWORD=your_password  # 可选
-DATAEASE_LOGIN_ORIGIN=0          # 登录源
-
-# 截图输出目录（必须在 OpenClaw workspace 内才能用 MEDIA: 展示,不输入默认直接在 OpenClaw workspace 内创建）
-DATAEASE_OUTPUT_DIR=/Users/username/.openclaw/workspace/dataease-output
-```
-
-### 2. 安装截图依赖
-
-首次使用需安装 Playwright 浏览器：
+复制 `.env.example` 为 `.env`。系统 API 优先使用 AK/SK，用户会话可使用用户名和密码。不得打印或提交 `.env`，也不得把密钥放进命令参数。
 
 ```bash
-cd {baseDir}
+python -m venv .venv
+python -m pip install -r requirements.txt
 npm install
 npx playwright install chromium
+python scripts/dataease.py system doctor
 ```
 
-### 3. 验证连接
+使用当前虚拟环境的解释器：Windows 通常是 `python`，Linux/macOS 通常是 `python3`；跨平台脚本调用应优先使用 `python -m` 或当前解释器，不要写死系统路径。
+
+默认代理模式为 `DATAEASE_PROXY_MODE=auto`：本机和私网 DataEase 地址绕过环境代理，公网地址保留代理。私有 CA 使用 `DATAEASE_CA_BUNDLE`；只在已知测试实例上使用 `--insecure`。
+
+## 标准工作流
+
+1. 首次连接运行 `python scripts/dataease.py system doctor` 和 `system capabilities`。
+2. 只读取本次任务需要的参考：
+   - 平台和数据能力：[references/platform.md](references/platform.md)
+   - 大屏与仪表板设计：[references/visualization.md](references/visualization.md)
+   - 命令和结果契约：[references/commands.md](references/commands.md)
+   - DTO 规格示例：[references/specs.md](references/specs.md)
+   - 风险、确认和回滚：[references/safety.md](references/safety.md)
+   - 操作系统与 Agent 兼容性：[references/compatibility.md](references/compatibility.md)
+   - 已验证范围和缺口：[references/validation.md](references/validation.md)
+3. 读取目标组织、数据集和已有资源；名称不唯一时要求精确 ID。
+4. 写操作先不加 `--apply`，向用户展示 `changes`、`risk`、`plan_id` 和回滚说明。
+5. 用户确认后重复同一配置，并传入 `--apply --plan-id <id>`；L3 再传 `--confirm-token <token>`。
+6. 回读并验证；目标、组织、版本、角色状态或请求载荷变化时废弃旧计划。
+
+## 智能大屏与仪表板
+
+先分析数据，再生成可视化方案：
 
 ```bash
-python3 scripts/inspect_data.py --list-datasets
+python scripts/dataease.py dataset profile --dataset "销售数据"
+python scripts/dataease.py dataset plan --dataset "销售数据" --title "销售经营分析" --busi-type dataV
 ```
 
----
+审阅生成的 visual spec，校正业务口径后传给 `visual create --spec`。自动字段角色、聚合方式和 KPI 只是建议，不得把它们当作已经确认的业务定义。
 
-## 📊 数据探索
+## 安全边界
 
-### 查询所有数据集
-```bash
-python3 scripts/inspect_data.py --list-datasets
-```
+- 创建普通用户为 L1；创建带管理员角色的用户为 L3。
+- 普通用户资料编辑为 L2；`roleIds` 发生变化立即升为 L3。
+- `role-edit` 统一为 L3，防止角色定义或权限相关变更绕过确认。
+- 删除、清空、启动/立即执行报告、认证/集成变更、禁用用户、数据源连接/结构变更和插件操作均为 L3。
+- L3 没有回滚说明或明确的不可回滚确认时拒绝执行。
+- DataEase 版本、目标快照、组织上下文、请求摘要和管理员角色状态均绑定计划；不允许复用、伪造或降级计划。
+- DataEase X-Pack 功能取决于版本、授权和当前账号权限；`system capabilities` 未确认前不得宣称可用。
 
-### 查询特定数据集字段
-```bash
-python3 scripts/inspect_data.py --dataset "<数据集名称或ID>"
-```
+## 结果处理
 
-**返回示例**：
-```json
-[
-  {"name": "产品", "type": 0, "id": "..."},
-  {"name": "销售额", "type": 2, "id": "..."}
-]
-```
+统一 CLI 输出一个 JSON 文档，包含 `ok`、`operation`、`result`、`changes`、`artifacts`、`warnings` 和适用时的 `audit_id`。失败时返回脱敏的结构化错误并以非零状态退出。
 
-字段类型：`0`=文本, `1`=日期, `2`=指标, `3`=数值
+在 Codex 中用绝对 Markdown 路径展示本地文件；OpenClaw 需要时使用 `MEDIA:<absolute_path>`；其他 Agent 按其宿主的附件协议处理。始终返回可用的 DataEase 预览 URL。报告收件人、Webhook 完整 URL、数据源密码、平台/SSO 密钥和用户敏感信息不得进入计划或公开结果。
 
----
+## 兼容性
 
-## 📈 图表部署
+核心 CLI 使用 Python 3.10+，截图/PDF 额外使用 Node.js 18+、Playwright 和 Chromium。代码按 Windows、Linux、macOS 的路径与进程模型编写，但“可运行”和“已实测”必须区分；不得宣称所有 AI Agent 都原生支持。安装位置、宿主能力、已验证系统和适配方式见 [references/compatibility.md](references/compatibility.md)。
 
-### 单图表部署（自动截图）
-```bash
-python3 scripts/deploy.py <type> <title> <dataset> <x_fields> <y_fields>
-```
+## 旧命令兼容
 
-**参数说明**：
-- `type`: `bar`(柱状图), `line`(折线图), `pie`(饼图), `table_info`(明细表)
-- `title`: 图表标题
-- `dataset`: 数据集名称或ID
-- `x_fields`: 维度字段（逗号分隔）
-- `y_fields`: 指标字段（逗号分隔）
-
-**示例**：
-```bash
-python3 scripts/deploy.py bar '各产品销售额' '销售数据' '产品' '实际销售'
-python3 scripts/deploy.py bar '销售对比' '销售数据' '公司' '期望销售,实际销售'
-python3 scripts/deploy.py pie '产品占比' '销售数据' '产品类别' '实际销售'
-```
-
-**可选参数**：
-- `--no-screenshot`: 跳过截图，仅返回链接
-
-**输出**：
-- 自动截图并返回 JSON 结果（包含 `screenshot` 路径）
-- Agent 应使用 `MEDIA:<screenshot_path>` 展示截图
-
-### 多图表看板部署
-```bash
-python3 scripts/multi_deploy.py <dashboard_title> '<charts_json>'
-```
-
-**JSON 结构**：
-```json
-[
-  {
-    "type": "bar",
-    "title": "图表标题",
-    "dataset_name": "数据集名",
-    "x_axis": ["维度字段"],
-    "y_axis": ["指标1", "指标2"]
-  }
-]
-```
-
-**示例**：
-```bash
-python3 scripts/multi_deploy.py '销售分析看板' '[
-  {"type":"bar","title":"各产品销售","dataset_name":"销售数据","x_axis":["产品"],"y_axis":["实际销售"]},
-  {"type":"pie","title":"类别占比","dataset_name":"销售数据","x_axis":["产品类别"],"y_axis":["实际销售"]}
-]'
-```
-
----
-
-## 🏢 组织管理
-
-### 查询组织列表
-```bash
-python3 scripts/capture_dashboard.py list-orgs
-```
-
-**返回**：所有可用组织及其 ID
-
-### 切换组织
-```bash
-python3 scripts/capture_dashboard.py switch-org --org-id <组织ID>
-```
-
-切换后，后续操作将在新组织上下文中执行。
-
----
-
-## 📑 资源列表
-
-### 列出仪表板
-```bash
-python3 scripts/capture_dashboard.py list-resources --busi-type dashboard
-```
-
-### 列出数据大屏
-```bash
-python3 scripts/capture_dashboard.py list-resources --busi-type dataV
-```
-
-### 指定组织查询
-```bash
-python3 scripts/capture_dashboard.py list-resources --org-id <组织ID> --busi-type dashboard
-```
-
----
-
-## 📸 截图导出
-
-### 导出仪表板截图
-```bash
-python3 scripts/capture_dashboard.py capture \
-  --resource-id <仪表板ID> \
-  --busi-type dashboard \
-  --output-dir <输出目录>
-```
-
-### 导出数据大屏
-```bash
-python3 scripts/capture_dashboard.py capture \
-  --resource-id <大屏ID> \
-  --busi-type dataV \
-  --output-dir <输出目录>
-```
-
-### 导出 PDF
-```bash
-python3 scripts/capture_dashboard.py capture \
-  --resource-id <ID> \
-  --busi-type dashboard \
-  --result-format 1 \
-  --output-dir <输出目录>
-```
-
-### 按名称匹配导出
-```bash
-python3 scripts/capture_dashboard.py capture \
-  --resource-name "销售总览" \
-  --busi-type dashboard
-```
-
-### 高级参数
-- `--pixel`: 分辨率，默认 `1920*1080`，可用 `2560*1440`
-- `--ext-wait-time`: 额外等待时间（秒），用于复杂图表
-- `--org-id`: 指定组织 ID
-
-### ⚠️ 导出结果处理
-
-**重要：导出的图片和 PDF 必须直接发送到对话中展示！**
-
-截图或 PDF 导出成功后，返回的 JSON 中包含 `saved_file` 字段：
-```json
-{
-  "ok": true,
-  "saved_file": "/path/to/file.jpg"  // 或 .pdf
-}
-```
-
-**Agent 必须执行：**
-1. 读取 `saved_file` 路径
-2. 使用 `MEDIA:<saved_file>` 语法直接发送到对话中
-
-**示例：**
-```
-MEDIA:/path/to/output/仪表板名_123456.jpg
-MEDIA:/path/to/output/仪表板名_123456.pdf
-```
-
-**不要只返回文件路径，必须使用 MEDIA: 发送文件！**
-
----
-
-## 🛠 参数规范
-
-### 图表类型
-| 类型 | 说明 | 适用场景 |
-|-----|------|---------|
-| `bar` | 柱状图 | 分类对比、排名 |
-| `line` | 折线图 | 趋势分析、时序数据 |
-| `pie` | 饼图 | 占比分析、构成分布 |
-| `table_info` | 明细表 | 数据明细展示 |
-
-### 维度与指标
-- **维度 (x_axis)**: 类别、日期等分组字段
-- **指标 (y_axis)**: 数值、金额等聚合字段
-- 明细表的 `y_axis` 传空，`x_axis` 列出所有展示字段
-
-### 业务类型
-- `dashboard`: 仪表板
-- `dataV`: 数据大屏
-
----
-
-## 📸 结果处理
-
-### 图表部署结果
-
-部署成功后输出 JSON：
-```json
-{
-  "ok": true,
-  "dashboard_id": "1243929230048366592",
-  "url": "https://...",
-  "screenshot": "/path/to/screenshot.jpg",
-  "title": "图表标题"
-}
-```
-
-**Agent 处理流程**：
-1. 读取 `screenshot` 路径图片
-2. 使用 `MEDIA:<screenshot_path>` 展示
-3. 同时提供访问链接
-
-### 截图导出结果
-
-```json
-{
-  "ok": true,
-  "resource_id": "...",
-  "resource_name": "...",
-  "saved_file": "/path/to/file.jpg",
-  "pixel": "1920*1080",
-  "capture_engine": "local_playwright"
-}
-```
-
----
-
-## ⚠️ 常见问题
-
-### SSL 证书错误
-macOS 上 Python 可能缺少系统证书，运行：
-```bash
-/Applications/Python\ 3.13/Install\ Certificates.command
-```
-
-### Playwright 浏览器未安装
-```bash
-npx playwright install chromium
-```
-
-### 截图超时
-使用 `--ext-wait-time` 增加等待时间：
-```bash
-python3 scripts/capture_dashboard.py capture --resource-id <ID> --ext-wait-time 5 --busi-type dashboard
-```
-
-### 资源名称匹配失败
-使用 `--resource-id` 精确指定，或查看 `candidates` 字段获取候选列表。
-
----
-
-## 📁 文件结构
-
-```
-skills/dataease-chart-skill/
-├── SKILL.md              # 本文档
-├── .env                  # 环境配置
-├── .env.example          # 配置模板
-├── package.json          # Node 依赖
-├── scripts/
-│   ├── inspect_data.py   # 数据探索
-│   ├── deploy.py         # 单图表部署
-│   ├── multi_deploy.py   # 多图表部署
-│   ├── engine.py         # 图表引擎
-│   ├── multi_engine.py   # 多图表引擎
-│   ├── client.py         # API 客户端
-│   ├── capture_dashboard.py  # 截图/资源管理
-│   └── browser_capture.mjs   # 浏览器截图
-├── templates/            # 图表模板
-│   ├── chart_bar/
-│   ├── chart_line/
-│   ├── chart_pie/
-│   └── chart_table_info/
-├── references/           # 参考文档
-│   ├── api.md
-│   └── resource_aliases.json
-├── agents/
-│   └── openai.yaml
-└── output/               # 截图输出目录
-```
+保留 `scripts/inspect_data.py`、`scripts/deploy.py`、`scripts/multi_deploy.py` 和 `scripts/capture_dashboard.py`，用于兼容既有调用参数与结果字段。新自动化优先使用 `scripts/dataease.py`，因为它提供能力检测、统一结果、安全计划、确认令牌和审计记录。

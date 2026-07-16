@@ -1,108 +1,103 @@
-# DataEase V2 全能技能
+# DataEase V2 智能平台 Skill
 
-一站式 DataEase 自动化解决方案，融合图表部署与资源管理能力。
+面向 AI Agent 的 DataEase V2 自动化能力包。它不仅能探索数据、创建仪表板和 DataV 大屏，也能在 dry-run、确认令牌、快照、回读和审计保护下管理数据源、数据集、数据填报、用户角色、系统设置、SSO、企业平台、定时报告与 Webhook。
 
-## 🎯 功能特性
+## 核心能力
 
-| 功能 | 命令 | 说明 |
-|------|------|------|
-| 📊 数据探索 | `inspect_data.py` | 查询数据集、字段信息 |
-| 📈 图表部署 | `deploy.py` | 创建图表并自动截图 |
-| 📋 多图看板 | `multi_deploy.py` | 创建多图表仪表板 |
-| 🏢 组织管理 | `capture_dashboard.py` | 查询/切换组织 |
-| 📑 资源列表 | `capture_dashboard.py` | 列出仪表板/大屏 |
-| 📸 截图导出 | `capture_dashboard.py` | 导出截图或PDF |
+| 模块 | 能力 |
+|---|---|
+| 数据与分析 | 数据源/数据集盘点、字段分析、数据画像、智能可视化规划 |
+| 仪表板与 DataV | 创建、发布、截图、PDF、主题与自动布局 |
+| 数据填报 | 表单、任务和数据行的查询与安全变更 |
+| 平台管理 | 组织、用户、角色、系统设置和邮件配置 |
+| 认证与集成 | MFA、HMAC、LDAP、OIDC、CAS、OAuth2、SAML2、钉钉、企微、飞书 |
+| 自动化 | 定时报告、执行日志、Webhook 和投递状态 |
+| 安全治理 | L0-L3 风险分级、计划绑定、确认令牌、脱敏、快照、回滚说明和审计 |
 
-## 🚀 快速开始
+## 安装
 
-### 1. 安装依赖
+通过 Agent Skills CLI 从 GitHub 安装：
 
 ```bash
+npx skills add North-CS/DataEase-skills --skill dataease --global
+```
+
+也可以克隆到目标 Agent 的 Skill 目录，例如 Codex：
+
+```bash
+git clone https://github.com/North-CS/DataEase-skills.git ~/.codex/skills/dataease
+```
+
+安装运行依赖：
+
+```bash
+python -m venv .venv
+python -m pip install -r requirements.txt
 npm install
 npx playwright install chromium
 ```
 
-### 2. 配置环境
+截图/PDF 才需要 Node.js、Playwright 和 Chromium；纯 API 操作只需要 Python 3.10+。
 
-```bash
-cp .env.example .env
-```
+## 配置
 
-编辑 `.env` 文件：
+复制 `.env.example` 为 `.env`，只在本机填写凭据：
 
-```bash
+```dotenv
 DATAEASE_BASE_URL=https://your-dataease.example.com
 DATAEASE_API_PREFIX=/de2api
 DATAEASE_ACCESS_KEY=your_access_key
 DATAEASE_SECRET_KEY=your_secret_key
-DATAEASE_USERNAME=admin
-DATAEASE_PASSWORD=your_password
-DATAEASE_LOGIN_ORIGIN=0
 ```
 
-**认证方式（二选一）：**
-- AK/SK：配置 `ACCESS_KEY` + `SECRET_KEY`
-- 密码登录：配置 `USERNAME` + `PASSWORD`
+不要提交 `.env`，不要把 AK/SK 写入命令参数、Issue、截图或对话。生产环境优先使用宿主环境变量或密钥管理系统。
 
-### 3. 使用示例
+## 快速验证
 
 ```bash
-# 查询数据集
-python3 scripts/inspect_data.py --list-datasets
-
-# 查询字段
-python3 scripts/inspect_data.py --dataset "销售数据"
-
-# 创建图表（自动截图）
-python3 scripts/deploy.py bar '各产品销售额' '销售数据' '产品' '实际销售'
-
-# 创建多图表看板
-python3 scripts/multi_deploy.py '销售分析' '[{"type":"bar","title":"销售","dataset_name":"销售数据","x_axis":["产品"],"y_axis":["销售额"]}]'
-
-# 查询组织
-python3 scripts/capture_dashboard.py list-orgs
-
-# 导出截图
-python3 scripts/capture_dashboard.py capture --resource-id <ID> --busi-type dashboard --output-dir ./output
-
-# 导出 PDF
-python3 scripts/capture_dashboard.py capture --resource-id <ID> --busi-type dashboard --result-format 1 --output-dir ./output
+python scripts/dataease.py system doctor
+python scripts/dataease.py system capabilities
+python scripts/dataease.py inventory scan
 ```
 
-## 📁 目录结构
+## 使用示例
 
-```
-dataease-v2-chart-skill/
-├── SKILL.md              # 技能文档（Agent 读取）
-├── README.md             # 本文档
-├── .env.example          # 环境变量模板
-├── package.json          # Node 依赖
-├── scripts/
-│   ├── inspect_data.py   # 数据探索
-│   ├── deploy.py         # 图表部署
-│   ├── multi_deploy.py   # 多图表部署
-│   ├── engine.py         # 图表引擎
-│   ├── client.py         # API 客户端
-│   ├── capture_dashboard.py  # 截图/资源管理
-│   └── browser_capture.mjs   # 浏览器截图
-├── templates/            # 图表模板
-├── references/           # API 参考
-└── agents/               # Agent 配置
+在支持 Agent Skills 的客户端中直接使用自然语言：
+
+```text
+使用 $dataease 分析“销售数据”数据集，设计一个 1920×1080 的科技感 DataV 大屏。先生成方案，确认后再创建并截图。
 ```
 
-## 📊 支持的图表类型
+也可以直接调用统一 CLI：
 
-- `bar` - 柱状图
-- `line` - 折线图
-- `pie` - 饼图
-- `table_info` - 明细表
+```bash
+python scripts/dataease.py dataset profile --dataset "销售数据"
+python scripts/dataease.py dataset plan --dataset "销售数据" --title "销售经营分析" --busi-type dataV
+```
 
-## 📸 截图参数
+## 高风险操作
 
-- `--pixel`: 分辨率，默认 `1920*1080`，可设 `2560*1440`
-- `--ext-wait-time`: 额外等待秒数
-- `--result-format`: `0`=JPEG, `1`=PDF
+- L0：读取、盘点、诊断、截图，可直接执行。
+- L1：普通创建，先 dry-run，再按 `plan_id` 执行。
+- L2：普通更新或发布，展示变更后按计划执行。
+- L3：权限、认证、集成、删除、清空、管理员创建等操作，必须提供计划返回的确认令牌。
 
-## 📝 许可证
+角色编辑、用户角色变化和管理员用户创建均属于 L3。安全约束由 Python CLI 强制执行，不依赖 Agent 的文字提醒。
+
+## 兼容性与文档
+
+- Windows x64 已完成本地执行验证。
+- Linux 和 macOS 按跨平台路径、进程与依赖模型实现，发布前应在目标宿主运行兼容性矩阵。
+- Codex、Claude Code、Cursor、Gemini CLI、GitHub Copilot、Qwen Code、Qoder、OpenClaw 等可通过 Agent Skills 方式安装；无本地文件或 Shell 的平台需要封装 MCP/Tool。
+
+详细说明：
+
+- [Skill 主说明](SKILL.md)
+- [命令参考](references/commands.md)
+- [安全与确认](references/safety.md)
+- [操作系统与 Agent 兼容性](references/compatibility.md)
+- [验证状态](references/validation.md)
+
+## 许可证
 
 MIT
