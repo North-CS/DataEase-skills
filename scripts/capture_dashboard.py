@@ -9,7 +9,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import uuid
 from difflib import SequenceMatcher
@@ -17,6 +16,14 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+for stream in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8")
+
+from cryptography.hazmat.primitives import padding as symmetric_padding, serialization
+from cryptography.hazmat.primitives.asymmetric import padding as asymmetric_padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -145,40 +152,18 @@ def sign_jwt(payload, secret_key):
     return f"{header_part}.{payload_part}.{base64url(signature)}"
 
 
-def aes_cipher_name(secret_key):
-    length = len(secret_key.encode("utf-8"))
-    if length == 16:
-        return "aes-128-cbc"
-    if length == 24:
-        return "aes-192-cbc"
-    if length == 32:
-        return "aes-256-cbc"
-    raise ValueError("Secret Key 长度必须是 16、24 或 32 字节")
-
-
 def aes_encrypt(plain_text, secret_key, iv):
-    if shutil.which("openssl") is None:
-        raise RuntimeError("当前环境缺少 openssl 命令，无法生成鉴权签名")
-    if len(iv.encode("utf-8")) != 16:
+    key_bytes = secret_key.encode("utf-8")
+    iv_bytes = iv.encode("utf-8")
+    if len(key_bytes) not in (16, 24, 32):
+        raise ValueError("Secret Key 长度必须是 16、24 或 32 字节")
+    if len(iv_bytes) != 16:
         raise ValueError("Access Key 长度必须是 16 字节，才能作为 AES IV")
-
-    cmd = [
-        "openssl",
-        "enc",
-        f"-{aes_cipher_name(secret_key)}",
-        "-base64",
-        "-A",
-        "-nosalt",
-        "-K",
-        secret_key.encode("utf-8").hex(),
-        "-iv",
-        iv.encode("utf-8").hex(),
-    ]
-    proc = subprocess.run(cmd, input=plain_text.encode("utf-8"), capture_output=True, check=False)
-    if proc.returncode != 0:
-        stderr = proc.stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(stderr or "openssl 加密失败")
-    return proc.stdout.decode("utf-8").strip()
+    padder = symmetric_padding.PKCS7(algorithms.AES.block_size).padder()
+    padded = padder.update(plain_text.encode("utf-8")) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key_bytes), modes.CBC(iv_bytes)).encryptor()
+    encrypted = encryptor.update(padded) + encryptor.finalize()
+    return base64.b64encode(encrypted).decode("ascii")
 
 
 def build_ask_auth(access_key, secret_key):
@@ -289,30 +274,15 @@ def fetch_dekey(base_url):
 
 
 def aes_decrypt(cipher_text, secret_key):
-    if shutil.which("openssl") is None:
-        raise RuntimeError("当前环境缺少 openssl 命令，无法执行账号密码登录加密")
     secret_key_bytes = secret_key.encode("utf-8")
     if len(secret_key_bytes) not in (16, 24, 32):
         raise ValueError("dekey 中的 AES key 长度不合法")
-
-    cmd = [
-        "openssl",
-        "enc",
-        f"-{aes_cipher_name(secret_key)}",
-        "-d",
-        "-base64",
-        "-A",
-        "-nosalt",
-        "-K",
-        secret_key_bytes.hex(),
-        "-iv",
-        b"0000000000000000".hex(),
-    ]
-    proc = subprocess.run(cmd, input=cipher_text.encode("utf-8"), capture_output=True, check=False)
-    if proc.returncode != 0:
-        stderr = proc.stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(stderr or "openssl 解密 dekey 失败")
-    return proc.stdout.decode("utf-8")
+    decryptor = Cipher(
+        algorithms.AES(secret_key_bytes), modes.CBC(b"0000000000000000")
+    ).decryptor()
+    padded = decryptor.update(base64.b64decode(cipher_text)) + decryptor.finalize()
+    unpadder = symmetric_padding.PKCS7(algorithms.AES.block_size).unpadder()
+    return (unpadder.update(padded) + unpadder.finalize()).decode("utf-8")
 
 
 def split_dekey(dekey):
@@ -330,21 +300,9 @@ def format_public_key(public_key):
 
 
 def rsa_encrypt(plain_text, public_key):
-    if shutil.which("openssl") is None:
-        raise RuntimeError("当前环境缺少 openssl 命令，无法执行账号密码登录加密")
-    with tempfile.TemporaryDirectory(prefix="dataease-pubkey-") as tmpdir:
-        key_path = Path(tmpdir) / "public.pem"
-        key_path.write_text(format_public_key(public_key), encoding="utf-8")
-        proc = subprocess.run(
-            ["openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", str(key_path)],
-            input=plain_text.encode("utf-8"),
-            capture_output=True,
-            check=False,
-        )
-        if proc.returncode != 0:
-            stderr = proc.stderr.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(stderr or "openssl RSA 加密失败")
-        return base64.b64encode(proc.stdout).decode("ascii")
+    key = serialization.load_pem_public_key(format_public_key(public_key).encode("ascii"))
+    encrypted = key.encrypt(plain_text.encode("utf-8"), asymmetric_padding.PKCS1v15())
+    return base64.b64encode(encrypted).decode("ascii")
 
 
 def encrypt_login_field(value, dekey):
@@ -512,7 +470,7 @@ def resolve_capture_token(args, auth_context, target_path, target_payload=None):
     }
 
 
-def run_browser_capture(preview_url, x_de_token, pixel, ext_wait_time, result_format, output_path):
+def run_browser_capture(preview_url, x_de_token, pixel, ext_wait_time, result_format, output_path, ask_auth=None):
     if shutil.which("node") is None:
         raise RuntimeError("当前环境缺少 node 命令，无法执行本地浏览器截图")
     if not BROWSER_CAPTURE_SCRIPT.exists():
@@ -524,8 +482,6 @@ def run_browser_capture(preview_url, x_de_token, pixel, ext_wait_time, result_fo
         str(BROWSER_CAPTURE_SCRIPT),
         "--url",
         preview_url,
-        "--token",
-        x_de_token,
         "--width",
         str(width),
         "--height",
@@ -537,12 +493,24 @@ def run_browser_capture(preview_url, x_de_token, pixel, ext_wait_time, result_fo
         "--output",
         str(output_path),
     ]
+    if x_de_token:
+        cmd.extend(["--token", x_de_token])
+    child_env = os.environ.copy()
+    if ask_auth:
+        child_env.update({
+            "DATAEASE_BROWSER_ACCESS_KEY": ask_auth["access_key"],
+            "DATAEASE_BROWSER_SIGNATURE": ask_auth["signature"],
+            "DATAEASE_BROWSER_ASK_TOKEN": ask_auth["x_de_ask_token"],
+        })
     proc = subprocess.run(
         cmd,
         cwd=str(ROOT_DIR),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
+        env=child_env,
     )
     stdout = proc.stdout.strip()
     stderr = proc.stderr.strip()
@@ -982,8 +950,42 @@ def command_list_resources(args, auth_context):
 def command_capture(args, auth_context):
     try:
         request_payload = {"busiFlag": args.busi_type, "resourceTable": args.resource_table}
-        x_de_token, runtime_info = resolve_capture_token(args, auth_context, "/de2api/dataVisualization/tree", request_payload)
-        headers = build_token_headers(x_de_token)
+        browser_ask_auth = None
+        if auth_context.get("auth_mode") == "ask_token":
+            ask_headers = build_headers(auth_context)
+            _, _, user_body = request_with_fallback(
+                args.base_url,
+                "GET",
+                ["/de2api/user/info"],
+                headers=ask_headers,
+                timeout=60,
+            )
+            user_data = extract_response_data(json.loads(user_body.decode("utf-8")), "当前用户")
+            current_org = None
+            if isinstance(user_data, dict):
+                current_org = user_data.get("oid") or user_data.get("defaultOid") or user_data.get("orgId")
+            target_org = str(getattr(args, "org_id", "") or "")
+            if target_org and str(current_org) != target_org:
+                x_de_token, runtime_info = resolve_capture_token(
+                    args, auth_context, "/de2api/dataVisualization/tree", request_payload
+                )
+                headers = build_token_headers(x_de_token)
+            else:
+                x_de_token = ""
+                browser_ask_auth = auth_context
+                headers = ask_headers
+                runtime_info = {
+                    "used_x_de_token": False,
+                    "used_org_id": target_org,
+                    "token_source": "ask_headers",
+                    "auth_mode": "ask_token",
+                    "request_mode": resolve_request_mode(args),
+                }
+        else:
+            x_de_token, runtime_info = resolve_capture_token(
+                args, auth_context, "/de2api/dataVisualization/tree", request_payload
+            )
+            headers = build_token_headers(x_de_token)
         resource_tree = query_resource_tree(args.base_url, headers, args.busi_type, args.resource_table)
         resources = flatten_tree(extract_tree_nodes(resource_tree))
 
@@ -1022,6 +1024,7 @@ def command_capture(args, auth_context):
             args.ext_wait_time,
             args.result_format,
             output_path,
+            ask_auth=browser_ask_auth,
         )
     except Exception as err:
         extra = {

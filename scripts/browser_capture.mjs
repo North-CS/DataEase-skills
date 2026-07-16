@@ -8,11 +8,11 @@ const RENDER_SETTLE_IDLE_MS = 2000;
 const MAX_CAPTURE_VIEWPORT_HEIGHT = 12000;
 
 function printHelp() {
-  console.log(`Usage: node scripts/browser_capture.mjs --url <url> --token <x-de-token> --width 1920 --height 1080 --wait-seconds 0 --result-format 0 --output /abs/path/file.jpg
+  console.log(`Usage: node scripts/browser_capture.mjs --url <url> [--token <x-de-token>] --width 1920 --height 1080 --wait-seconds 0 --result-format 0 --output /abs/path/file.jpg
 
 Options:
   --url            DataEase preview URL
-  --token          X-DE-TOKEN to inject into localStorage as user.token
+  --token          X-DE-TOKEN to inject into localStorage as user.token; ASK mode uses protected environment variables
   --width          Browser viewport width in pixels
   --height         Browser viewport height in pixels
   --wait-seconds   Extra wait time after canvas is visible
@@ -285,11 +285,19 @@ async function main() {
     }
 
     const url = args.url;
-    const token = args.token;
+    const token = args.token ?? '';
+    const askHeaders = {
+      accessKey: process.env.DATAEASE_BROWSER_ACCESS_KEY ?? '',
+      signature: process.env.DATAEASE_BROWSER_SIGNATURE ?? '',
+      'X-DE-ASK-TOKEN': process.env.DATAEASE_BROWSER_ASK_TOKEN ?? ''
+    };
+    const hasAskAuth = Object.values(askHeaders).every(Boolean);
     const output = args.output;
-    if (!url || !token || !output) {
-      throw new Error('url, token and output are required');
+    if (!url || (!token && !hasAskAuth) || !output) {
+      throw new Error('url, output, and either token or ASK environment authentication are required');
     }
+    const authHeaders = token ? { 'X-DE-TOKEN': token } : askHeaders;
+    const storageToken = token || askHeaders['X-DE-ASK-TOKEN'];
 
     const width = parsePositiveInteger(args.width ?? '1920', 'width');
     const height = parsePositiveInteger(args.height ?? '1080', 'height');
@@ -309,16 +317,17 @@ async function main() {
       viewport: { width, height },
       deviceScaleFactor: 1,
       ignoreHTTPSErrors: true,
-      extraHTTPHeaders: {
-        'X-DE-TOKEN': token
-      }
+      extraHTTPHeaders: authHeaders
     });
     await context.route('**/de2api/**', async route => {
       const request = route.request();
       const headers = {
         ...request.headers(),
-        'X-DE-TOKEN': token
+        ...authHeaders
       };
+      if (!token) {
+        delete headers['x-de-token'];
+      }
       const url = request.url();
       if (url.includes('/de2api/outerParams/getOuterParamsInfo/')) {
         try {
@@ -349,7 +358,7 @@ async function main() {
     });
     page = await context.newPage();
     const selector = '.canvas-container';
-    const timeout = 120000;
+    const timeout = Number(process.env.DATAEASE_CANVAS_TIMEOUT_MS || 120000);
     const pendingRequests = new Set();
     const trackRequest = request => {
       const resourceType = request.resourceType();
@@ -375,7 +384,7 @@ async function main() {
       }
     });
     page.on('pageerror', error => {
-      debugLogs.push(`pageerror ${error.message}`);
+      debugLogs.push(`pageerror ${error.stack || error.message}`);
     });
     page.on('console', message => {
       if (message.type() === 'error') {
@@ -392,8 +401,8 @@ async function main() {
         localStorage.setItem('__de_raw_token__', injectedToken);
       },
       {
-        injectedToken: token,
-        cacheToken: buildWsCacheItem(token, now),
+        injectedToken: storageToken,
+        cacheToken: buildWsCacheItem(storageToken, now),
         cacheExp: buildWsCacheItem(now + 3600 * 1000, now),
         cacheTime: buildWsCacheItem(now, now)
       }
@@ -444,7 +453,7 @@ async function main() {
       });
       const pdfBytes = await toPdfBuffer(pngBytes, PDFDocument);
       await fs.writeFile(output, pdfBytes);
-        console.log(JSON.stringify({
+      console.log(JSON.stringify({
           ok: true,
           format: 'pdf',
           width: Math.round(box.width),

@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
-from engine import DataEaseChartEngine
+from .visual_base import DataEaseChartEngine
 
 
 class MultiDataEaseChartEngine(DataEaseChartEngine):
@@ -24,7 +24,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             return ""
         path = Path(configured_path)
         if not path.is_absolute():
-            path = Path(__file__).resolve().parent.parent / path
+            path = Path(__file__).resolve().parents[2] / path
         if not path.is_file():
             print(f"Warning: dashboard background not found, using theme color: {path}", file=sys.stderr)
             return ""
@@ -220,7 +220,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         layout: dict[str, Any],
         title: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        template_dir = Path(__file__).resolve().parent.parent / "templates" / f"chart_{chart_type}"
+        template_dir = Path(__file__).resolve().parents[2] / "templates" / f"chart_{chart_type}"
         if not template_dir.exists():
             raise FileNotFoundError(f"Unsupported chart template: {chart_type}")
         template = (template_dir / "template.j2").read_text(encoding="utf-8")
@@ -343,7 +343,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         if not charts_config:
             raise ValueError("charts_config must not be empty")
         board_name = f"{title}_{int(time.time())}" if append_timestamp else title
-        base_template = Path(__file__).resolve().parent.parent / "templates" / "dashboard" / "base.json"
+        base_template = Path(__file__).resolve().parents[2] / "templates" / "dashboard" / "base.json"
         canvas_style = json.loads(json.loads(base_template.read_text(encoding="utf-8"))["canvasStyleData"])
         canvas_style = self._apply_canvas_theme(canvas_style, theme)
 

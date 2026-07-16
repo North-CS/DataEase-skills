@@ -1,7 +1,7 @@
 import json, re, time, random, os, sys
 
 # Local SDK client
-from client import DataEaseClient
+from .visual_client import DataEaseClient
 
 class DataEaseChartEngine:
     def __init__(self, base_url, ak, sk, *, settings=None):
@@ -119,7 +119,7 @@ class DataEaseChartEngine:
     def deploy(self, chart_type, title, dataset_id, x_names, y_names, layout=None):
         # 1. Directory standardization
         # Use relative path from this script (scripts/engine.py) to templates/
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         tpl_dir = os.path.join(base_dir, "..", "templates", f"chart_{chart_type}")
 
         if not os.path.exists(tpl_dir):

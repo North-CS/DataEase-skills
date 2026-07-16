@@ -1,7 +1,7 @@
 {
-  "name": "dataease-skills",
-  "version": "1.0.0",
-  "description": "DataEase v2 Chart Skill with auto-screenshot",
+  "name": "dataease-skill",
+  "version": "2.0.0",
+  "description": "Safe DataEase V2 automation, administration, analytics, dashboard and DataV skill",
   "dependencies": {
     "pdf-lib": "^1.17.1",
     "playwright": "^1.59.1"

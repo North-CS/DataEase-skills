@@ -3,6 +3,10 @@ import os
 import json
 import subprocess
 
+for stream in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8")
+
 # Add local path for engine import
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -42,7 +46,7 @@ def _default_output_dir():
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output")
 
 OUTPUT_DIR = _default_output_dir()
-DEFAULT_PIXEL = "2560*1440"  # 更高分辨率，图片更清晰
+DEFAULT_PIXEL = "1920*1080"
 
 def capture_dashboard(dashboard_id, output_format="jpeg"):
     """调用 capture_dashboard.py 进行截图"""
@@ -61,7 +65,7 @@ def capture_dashboard(dashboard_id, output_format="jpeg"):
     # 调用截图脚本
     result_format = "0" if output_format == "jpeg" else "1"  # 0=jpeg, 1=pdf
     cmd = [
-        "python3", capture_script,
+        sys.executable, capture_script,
         "capture",
         "--resource-id", str(dashboard_id),
         "--busi-type", "dashboard",
@@ -70,9 +74,14 @@ def capture_dashboard(dashboard_id, output_format="jpeg"):
         "--base-url", capture_base_url,
         "--pixel", DEFAULT_PIXEL
     ]
+    org_id = os.environ.get("DATAEASE_ORG_ID", "").strip()
+    if org_id:
+        cmd.extend(["--org-id", org_id])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120
+        )
         if result.returncode == 0:
             output = json.loads(result.stdout)
             if output.get("ok"):
@@ -87,12 +96,17 @@ def capture_dashboard(dashboard_id, output_format="jpeg"):
         return None, str(e)
 
 def main():
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print("Usage: python deploy.py <type> <title> <dataset_name_or_id> <x_fields> <y_fields> [--no-screenshot]")
+        print("Example: python deploy.py line 'Skill Test' '电商用户购买行为' '访问平台' '访问次数'")
+        return
+
     if not all([ACCESS_KEY, SECRET_KEY, BASE_URL]):
         print("Error: Missing required environment variables.")
         print("Please set DATAEASE_ACCESS_KEY, DATAEASE_SECRET_KEY, and DATAEASE_BASE_URL.")
         sys.exit(1)
 
-    if len(sys.argv) < 5:
+    if len(sys.argv) < 6:
         print("Usage: python3 deploy.py <type> <title> <dataset_name_or_id> <x_fields> <y_fields> [--no-screenshot]")
         print("Example: python3 deploy.py line 'Skill Test' '电商用户购买行为' '访问平台' '访问次数'")
         sys.exit(1)
