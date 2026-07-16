@@ -1,82 +1,76 @@
-import json
-import time
-import uuid
-import base64
-import os
-import requests
-import jwt
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding
-from cryptography.hazmat.backends import default_backend
-import urllib3
+"""Backward-compatible client wrapper over the DataEase Skill 2.0 core."""
 
-urllib3.disable_warnings()
+from __future__ import annotations
+
+from typing import Any
+
+from dataease_skill.client import DataEaseClient as CoreClient
+from dataease_skill.config import Settings
+
 
 class DataEaseClient:
-    def __init__(self, base_url, access_key, secret_key):
-        # Separate base URL and API prefix
-        self.base_url = base_url.rstrip('/')
-        self.api_prefix = os.environ.get('DATAEASE_API_PREFIX', '/de2api')
-        self.access_key = access_key
-        self.secret_key = secret_key
-
-    def _get_signature(self, uid, timestamp):
-        src_str = f"{self.access_key}|{uid}|{timestamp}"
-        padder = padding.PKCS7(128).padder()
-        padded_data = padder.update(src_str.encode('utf-8')) + padder.finalize()
-        cipher = Cipher(
-            algorithms.AES(self.secret_key.encode('utf-8')),
-            modes.CBC(self.access_key.encode('utf-8')),
-            backend=default_backend()
+    def __init__(
+        self,
+        base_url: str,
+        access_key: str = "",
+        secret_key: str = "",
+        *,
+        settings: Settings | None = None,
+    ):
+        settings = settings or Settings.load().with_overrides(
+            base_url=base_url.rstrip("/"),
+            access_key=access_key,
+            secret_key=secret_key,
         )
-        encryptor = cipher.encryptor()
-        ciphertext = encryptor.update(padded_data) + encryptor.finalize()
-        return base64.b64encode(ciphertext).decode('utf-8')
+        self._core = CoreClient(settings)
+        self.settings = settings
+        self.base_url = settings.base_url
+        self.api_prefix = settings.api_prefix
+        self.access_key = settings.access_key
+        self.secret_key = settings.secret_key
+        if settings.org_id:
+            self._core.switch_organization(settings.org_id)
 
-    def _get_headers(self):
-        timestamp = str(int(time.time() * 1000))
-        uid = str(uuid.uuid4())
-        signature = self._get_signature(uid, timestamp)
-        claims = {
-            "accessKey": self.access_key,
-            "signature": signature
-        }
-        token = jwt.encode(claims, self.secret_key, algorithm="HS256")
-        if isinstance(token, bytes):
-            token = token.decode('utf-8')
-        
-        return {
-            "accessKey": self.access_key,
-            "signature": signature,
-            "x-de-ask-token": token,
-            "timestamp": timestamp,
-            "nonce": uid,
-            "Content-Type": "application/json"
-        }
+    def _get_headers(self) -> dict[str, str]:
+        return self._core._auth_headers()
 
-    def get(self, path, params=None):
-        url = f"{self.base_url}{self.api_prefix}{path}"
-        response = requests.get(url, headers=self._get_headers(), params=params, verify=False)
-        return response
+    def _response(self, method: str, path: str, payload: Any = None, params: dict[str, Any] | None = None):
+        url = f"{self.base_url}{self.api_prefix}/{path.lstrip('/')}"
+        return self._core.session.request(
+            method,
+            url,
+            headers=self._get_headers(),
+            json=payload,
+            params=params,
+            verify=self.settings.verify,
+            timeout=self.settings.timeout,
+        )
 
-    def post(self, path, payload=None):
-        url = f"{self.base_url}{self.api_prefix}{path}"
-        response = requests.post(url, headers=self._get_headers(), json=payload, verify=False)
-        return response
+    def get(self, path: str, params: dict[str, Any] | None = None):
+        return self._response("GET", path, params=params)
 
-    def get_dataset_fields(self, dataset_id):
+    def post(self, path: str, payload: Any = None):
+        return self._response("POST", path, payload=payload)
+
+    def get_dataset_fields(self, dataset_id: str):
         return self.post(f"/datasetField/listByDatasetGroup/{dataset_id}").json()
 
-    def update_publish_status(self, dashboard_id, name, status=1, type='dashboard', mobile_layout=False, active_view_ids=None):
-        url = f"{self.base_url}{self.api_prefix}/dataVisualization/updatePublishStatus"
-        payload = {
+    def update_publish_status(
+        self,
+        dashboard_id: str,
+        name: str,
+        status: int = 1,
+        type: str = "dashboard",
+        mobile_layout: bool = False,
+        active_view_ids: list[str] | None = None,
+    ):
+        response = self.post("/dataVisualization/updatePublishStatus", {
             "id": dashboard_id,
             "name": name,
             "mobileLayout": mobile_layout,
             "activeViewIds": active_view_ids or [],
             "status": status,
-            "type": type
-        }
-        response = requests.post(url, headers=self._get_headers(), json=payload, verify=False)
+            "type": type,
+        })
         response.raise_for_status()
         return response.json()
