@@ -1,4 +1,4 @@
 interface:
   display_name: "DataEase 智能平台助手"
-  short_description: "智能构建大屏，并安全管理 DataEase 数据、认证、集成与自动化"
-  default_prompt: "Use $dataease to inspect this DataEase instance and safely complete my requested analytics, administration, integration, SSO, report, or Webhook operation."
+  short_description: "DataEase 建模、组件编辑、迁移、权限与一站式智能编排"
+  default_prompt: "Use $dataease to inspect this DataEase instance and safely plan or complete my requested dataset modeling, existing-visual component edit, permission orchestration, migration, plugin/driver, end-to-end analytics solution, administration, integration, SSO, report, or Webhook operation."

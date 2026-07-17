@@ -1,6 +1,6 @@
 {
   "name": "dataease-skill",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Safe DataEase V2 automation, administration, analytics, dashboard and DataV skill",
   "dependencies": {
     "pdf-lib": "^1.17.1",
