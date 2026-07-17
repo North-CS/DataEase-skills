@@ -29,7 +29,11 @@
 
 ### 本技能的用途
 
-在用户显式提供 `orgId` 时切换组织上下文，并使用响应中的 `data.token` 作为后续资源树查询和本地预览截图的 `x-de-token`。
+在用户显式提供 `orgId` 时切换组织上下文，并在当前进程内使用响应中的 `data.token` 作为后续资源树查询和本地预览截图的 `x-de-token`。
+
+`switch-org` 默认只返回组织 ID、Token 是否可用及过期时间，不打印原始 Token。仅在受控调试场景显式添加 `--show-token` 才会显示它；不要把输出写入日志或提交到仓库。
+
+命令入口之间不共享内存会话。若随后改用 `scripts/dataease.py` 或启动新的 `capture_dashboard.py` 进程，请在 `.env` 设置 `DATAEASE_ORG_ID`，或在域命令之前传递全局 `--org-id`。不要假设一个进程执行 `switch-org` 后，另一个进程会自动继承组织 Token。
 
 ## 3. 查询可视化资源树
 
@@ -135,6 +139,8 @@
 
 - `x-de-token`
 
+`x-de-token` 只保存在当前进程内存中，不由两个 CLI 入口共同持久化。
+
 ## 6. 当前脚本对应动作
 
 - `list-orgs`
@@ -143,3 +149,29 @@
 - `capture`
 
 如果实际网关存在额外签名规则，请按部署环境调整 `scripts/capture_dashboard.py`。
+
+## 7. 高级编排接口族
+
+统一 CLI 根据 `GET /de2api/license/version` 选择适配器。不要在业务代码里自行写死以下有版本差异的路径：
+
+| 能力 | 接口 |
+|---|---|
+| 可视化详情 2.7.x | `GET /dataVisualization/findById/{id}/{busiFlag}` |
+| 可视化详情 2.8+ | `POST /dataVisualization/findById` |
+| 保存已有画布 | `POST /dataVisualization/updateCanvas` |
+| 联动汇总 2.7-2.10.9 | `GET /linkage/getVisualizationAllLinkageInfo/{dvId}` |
+| 联动汇总 2.10.10+ | `GET /linkage/getVisualizationAllLinkageInfo/{dvId}/{resourceTable}` |
+| 联动变更 | `POST /linkage/saveLinkage`、`/linkage/removeLinkage`、`/linkage/updateLinkageActive` |
+| 数据集模型 | `POST /datasetTree/details/{id}`、`/create`、`/save`、`/getSqlParams` |
+| SQL/模型预览 | `POST /datasetData/previewSql`、`/previewData`、`/tableField` |
+| 计算字段 | `POST /datasetField/save`、`/get/{id}`、`/delete/{id}` |
+| 行权限 | `/dataset/rowPermissions/pager|save|delete|dataSetRowPermissionInfo` |
+| 列权限 | `/dataset/columnPermissions/pager|save|delete|info` |
+| 资源权限 | `POST /auth/busiPermission`、`/auth/saveBusiPer` |
+| 同步 Cron 预览 | `POST /datasource/cronNextTimes` |
+| 插件/驱动 | `GET /plugin/query`、multipart `POST /plugin/install|update`、`POST /plugin/uninstall/{id}` |
+| 数据集原生导出 2.10+ | `POST /datasetTree/exportDataset` |
+
+插件安装和更新必须使用 `multipart/form-data`。更新的 `request` part 是 `{"id":"<pluginId>"}` JSON，`file` part 是 JAR/ZIP 包。可移植 JSON 备份/恢复是 Skill 层协议，不等同于 DataEase 原生数据导出。
+
+权限 `flag` 使用 DataEase 资源名：`PANEL`（dashboard）、`SCREEN`（DataV）、`DATASET`、`DATASOURCE`、`DATA_FILLING`。`type=0` 表示用户，`type=1` 表示角色。行列权限是独立 API，不得塞进普通资源权重矩阵。

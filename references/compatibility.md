@@ -18,6 +18,8 @@ An Agent can understand the instructions without being able to execute the CLI. 
 
 The DataEase server may run on a different operating system from the Skill host. Only network access to its HTTP(S) endpoint is required; SSH access is not part of normal operation.
 
+Advanced API compatibility is a separate axis from host compatibility. `system adapter` supports source-inspected DataEase `2.7.x` through `2.10.25`, with per-family routing for visual detail, linkage, plugins and export. A future DataEase version may run on a verified Windows/Linux/macOS host yet still be mutation-blocked until its API/DTO behavior is validated.
+
 ## Runtime requirements
 
 - Python 3.10 or newer for all API, safety, audit and planning workflows.
@@ -28,6 +30,20 @@ The DataEase server may run on a different operating system from the Skill host.
 - A UTF-8 capable terminal. The JSON result remains authoritative if a terminal font cannot render Chinese text.
 
 Use the current interpreter instead of a hard-coded executable path. In documentation, `python` means the active virtual-environment interpreter; a Linux/macOS host may expose it as `python3`.
+
+The capture engine uses Node Playwright only. Python Playwright is not a dependency and installing its Chromium creates a second, incompatible browser cache without helping this Skill. Run `system doctor` to check the installed Node package, Chromium executable and Linux shared libraries.
+
+Always prefer a virtual environment:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+npm install
+npx playwright install chromium
+```
+
+Do not make `--break-system-packages` the default installation path. On Debian/Ubuntu, missing browser libraries can be installed with `npx playwright install --with-deps chromium`. On RHEL/CentOS-family hosts, install the missing packages reported by `system doctor` with the system package manager; `libXdamage.so.1` is commonly provided by `libXdamage`.
 
 ## Agent support tiers
 

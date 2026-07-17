@@ -6,18 +6,32 @@
 |---|---|---|
 | L0 | List, inspect, profile, capture, diagnose | Execute directly |
 | L1 | Create dashboard, DataV, form, ordinary user, ordinary data resource or task | Dry-run, then apply by plan ID |
-| L2 | Update/publish ordinary resources, edit user profile without changing roles, create Webhook, stop report, enable Webhook SSL | Show before/after diff, then apply by plan ID |
-| L3 | Delete, truncate, report fire/start/create, role edit, user role assignment, administrator-user creation, authentication/integration change, user disablement, data-source connection/schema or plugin change | Snapshot, rollback statement, plan ID and confirmation token |
+| L2 | Existing visual component/field/theme/filter edit, dataset-model or calculated-field save, native business-data export, publish ordinary resources, edit user profile without changing roles, create Webhook, stop report | Show diff/snapshot, then apply by plan ID |
+| L3 | Resource or row/column permission change, restore/migrate, solution execution, plugin/driver lifecycle, delete, truncate, report fire/start/create, role edit, user role assignment, administrator creation, authentication/integration change, user disablement, data-source connection/schema change | Snapshot/compensation statement, plan ID and confirmation token |
 
 Plans expire after 30 minutes. Re-run dry-run if the target, organization, version, resource state or requested payload changes.
 
 ## Permission-sensitive administration
 
 - `admin role-edit` is always L3. Treat a role definition edit as permission-sensitive even when the submitted DTO currently changes only its name or description.
+- `admin role-permission-set` is always L3. It snapshots the selected menu/resource matrix, binds the role, scope and desired matrix to the plan digest, applies only with the matching confirmation token, and verifies the result by readback.
+- `admin role-edit` cannot change the permission matrix. Read it with `admin role-permissions` and change it with `admin role-permission-set`. If the current edition/version does not expose the required `/auth/*Permission` endpoint, return `capability_unavailable`; never silently fall back to browser automation for a permission mutation.
 - `admin user-edit` is L3 whenever the normalized `roleIds` set differs from the current user. Reordering the same role IDs does not count as a permission change; other profile-only edits remain L2.
 - `admin user-create` is L3 when any selected DataEase role is an administrator role. DataEase V2 identifies the built-in organization-administrator role structurally as `root=true` and `readonly=false`; do not depend on a localized role name.
 - The selected role set and its administrator classification are digest-bound to the plan. A missing, hidden, removed or reclassified role invalidates the plan before the create request is sent.
 - Older plans with a lower risk classification are rejected with `plan_risk_changed`; generate a new dry-run instead of attempting to reuse them.
+- `permission apply` binds exact user/role identity and every resource scope, verifies each matrix and attempts to restore already-applied scopes if a later scope fails.
+- `model permission-save/delete` is L3 because row/column rules change data exposure even when no role membership changes.
+- `transfer restore/migrate` binds target instance, organization, version, bundle digest and ID mapping. Data-source credentials are never taken from a portable bundle.
+- `plugin`/`driver` plans bind the exact package SHA-256. Rollback requires a separately retained known-good package because DataEase exposes no plugin-package download API.
+- `solution execute` requires confirmed metric definitions and uses a compensating transaction. Any failed compensation is returned explicitly; never describe partial rollback as success.
+
+## Version gates
+
+- Run `system adapter` before using advanced mutations.
+- The adapter is source-verified through DataEase `2.10.25`. A higher version is read-only by default.
+- `DATAEASE_ALLOW_UNVERIFIED_VERSION=true` is only for an isolated compatibility run after inspecting endpoint/DTO differences. Do not set it globally in production.
+- Unsupported features return `capability_unavailable`; do not silently switch to UI automation for permissions, plugins or destructive operations.
 
 Setting saves also require an unchanged, complete and unique pkey set. Version-specific endpoints that failed destructive readback testing are blocked even when the caller supplies a valid plan; DataEase `2.10.25` email save is one such endpoint, while its non-mutating validation endpoint remains available.
 

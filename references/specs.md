@@ -57,6 +57,15 @@ Dataset create/save uses DataEase `DatasetGroupInfoDTO`. Folder creation has a d
 
 Preserve the response types for the table node `id`, `datasourceId`, fields and `info`; replace `currentDsFields` and `allFields` with the returned field objects rather than hand-written approximations. Do not reuse this shape for SQL, API, Excel or cross-source datasets.
 
+Use the discovery commands instead of manually constructing those DTOs:
+
+```bash
+python scripts/dataease.py datasource tables --datasource-id 123
+python scripts/dataease.py datasource table-fields --datasource-id 123 --table-name sales
+```
+
+Some `2.10.x` servers return `info: null` and `isCross: null` from `getTables` even though `tableField` requires a serialized `{"table":"..."}` descriptor and a concrete boolean. The Skill fills those two missing physical-table values (`info` and `isCross: false`) and otherwise preserves the server DTO unchanged.
+
 ## Administration
 
 ```json
@@ -81,13 +90,33 @@ Preserve the response types for the table node `id`, `datasourceId`, fields and 
   "email": "zhangsan@example.invalid",
   "phone": "",
   "roleIds": [123],
-  "enable": true
+  "enable": true,
+  "mfaEnable": false,
+  "variables": []
 }
 ```
 
+On DataEase `2.10.25`, `/user/create` iterates `variables` without accepting null. The Skill supplies `variables: []` and `mfaEnable: false` when callers omit them, and binds that normalized DTO to the plan digest.
+
 Use the current detail payload as the base for edit operations and preserve fields not intentionally changed.
 
-Role safety is derived from live DataEase metadata, not the role's displayed name. Creating a user with an administrator role (`root=true`, `readonly=false`), changing a user's normalized `roleIds`, or running `role-edit` produces an L3 plan and requires its confirmation token. Creating an ordinary user remains L1; editing non-role user fields remains L2.
+Role safety is derived from live DataEase metadata, not the role's displayed name. Creating a user with an administrator role (`root=true`, `readonly=false`), changing a user's normalized `roleIds`, running `role-edit`, or changing a role permission matrix produces an L3 plan and requires its confirmation token. Creating an ordinary user remains L1; editing non-role user fields remains L2.
+
+`role-edit` changes only role metadata (`name` and `desc`). Use `role-permission-set` for one role's independent menu/resource permission matrix, or `permission apply` for a multi-scope user/role resource bundle. The permission spec is strict so misspelled keys are rejected before DataEase can silently ignore them:
+
+```json
+{
+  "roleId": 123,
+  "scope": "dataset",
+  "permissions": [
+    {"id": 456, "weight": 3, "ext": 0}
+  ]
+}
+```
+
+Supported scopes are `menu`, `panel`, `screen`, `datasource`, `dataset`, and `data_filling`; `dashboard` and `datav` are accepted aliases for `panel` and `screen`. The array is the complete desired direct-permission matrix and accepts weights `1`–`9`. Remove an existing resource from the array to revoke it; the Skill compares the current matrix and sends only changed entries, including DataEase's required incremental `weight: 0` revocation. Read the current matrix before editing. `role-permission-set` snapshots the selected scope and verifies readback after apply, but rollback remains an explicit operator action. It rejects embedded row/column rules because those have a separate lifecycle; use `model permission-list/save/delete` with the official row/column permission DTO. If the current DataEase edition/version lacks the permission endpoints, configure the matrix through the UI instead of assuming `role-edit` changed it.
+
+Component-edit, dataset-model, portable-restore, plugin package and end-to-end solution specs are documented in [advanced.md](advanced.md). Preserve DTOs from the target DataEase version; the advanced commands validate structure but cannot invent join keys, business metric definitions, row filters or extension metadata.
 
 ## Settings
 

@@ -13,6 +13,7 @@ Use `--insecure` only for a known test instance. Prefer `DATAEASE_CA_BUNDLE` for
 ```bash
 python scripts/dataease.py system doctor
 python scripts/dataease.py system capabilities
+python scripts/dataease.py system adapter
 python scripts/dataease.py --org-id 1 inventory scan
 ```
 
@@ -23,8 +24,11 @@ python scripts/dataease.py dataset list
 python scripts/dataease.py dataset fields --dataset "销售数据"
 python scripts/dataease.py dataset profile --dataset "销售数据"
 python scripts/dataease.py dataset plan --dataset "销售数据" --title "经营分析" --busi-type dashboard
+python scripts/dataease.py dataset plan --dataset "销售" --dataset "目标" --dataset "库存" --title "经营驾驶舱" --busi-type dataV
 python scripts/dataease.py datasource list
 python scripts/dataease.py datasource types
+python scripts/dataease.py datasource tables --datasource-id 123
+python scripts/dataease.py datasource table-fields --datasource-id 123 --table-name sales
 python scripts/dataease.py datasource validate --id 123
 python scripts/dataease.py datasource validate-spec --spec datasource.json
 python scripts/dataease.py datasource sync-logs --id 123 --page 1 --size 20
@@ -54,7 +58,44 @@ python scripts/dataease.py dataset delete --id 456 --name "新名称" --ack-no-r
 
 `datasource sync` maps to DataEase `syncApiDs` and is intentionally limited to API and ExcelRemote source types.
 
-`dataset plan` returns a visualization spec in `result`. Save only that object, not the surrounding result envelope, as the input to `visual create`.
+`datasource tables` returns DataEase's version-native `DatasetTableDTO` records. `datasource table-fields` reuses that DTO, fills the physical-table `info` descriptor when the server omits it, and returns the exact field DTOs required by dataset/model specs. This avoids inventing field IDs or types.
+
+`dataset plan` accepts repeated `--dataset` arguments. Multi-dataset plans place charts from every usable dataset on one canvas and return same-name relationship candidates, KPI candidates and explicit confirmation requirements. They do not silently create joins or claim that matching field names prove the same business grain. Save only `result`, not the surrounding envelope, as the input to `visual create`.
+
+## Advanced modeling, editing, permissions and migration
+
+```bash
+python scripts/dataease.py visual inspect --resource-id 123 --busi-type dataV
+python scripts/dataease.py visual patch --spec visual-patch.json
+python scripts/dataease.py visual linkage --spec linkage.json
+
+python scripts/dataease.py model inspect --dataset-id 456
+python scripts/dataease.py model validate --spec dataset-model.json
+python scripts/dataease.py model preview --preview-type sql --spec sql-preview.json
+python scripts/dataease.py model save --spec dataset-model.json
+python scripts/dataease.py model calculated-save --spec calculated-field.json
+python scripts/dataease.py model permission-save --kind row --spec row-permission.json
+python scripts/dataease.py model sync-policy --spec datasource-with-sync-setting.json --ack-no-rollback
+
+python scripts/dataease.py permission inspect --subject-type role --subject-id 100 --scope all
+python scripts/dataease.py permission apply --spec permissions.json
+
+python scripts/dataease.py transfer backup --resource-type visual --resource-id 123 --busi-type dataV --output backup.json
+python scripts/dataease.py transfer export --resource-type visual --resource-id 123 --busi-type dataV --output backup.json
+python scripts/dataease.py transfer restore --spec restore.json --target-env-file target.env
+python scripts/dataease.py transfer import --spec restore.json --target-env-file target.env
+python scripts/dataease.py transfer migrate --spec restore.json --target-env-file target.env
+
+python scripts/dataease.py plugin list
+python scripts/dataease.py driver package-check --package driver.jar
+python scripts/dataease.py plugin install --package extension.jar
+python scripts/dataease.py plugin rollback --plugin-id 100 --package extension-old.jar
+
+python scripts/dataease.py solution plan --spec sales-solution.json
+python scripts/dataease.py solution execute --spec sales-solution.json
+```
+
+Mutation commands above follow the usual repeat-the-same-spec apply flow. Resource and row/column permissions, restore/migrate, extension lifecycle and `solution execute` are L3 and require `--confirm-token`. Full specs, endpoint/version behavior and rollback limits are in [advanced.md](advanced.md).
 
 ## Visualization
 
@@ -107,6 +148,7 @@ python scripts/dataease.py filling delete --apply --plan-id plan-xxxxxxxx --conf
 python scripts/dataease.py admin organizations
 python scripts/dataease.py admin users --page 1 --size 100
 python scripts/dataease.py admin roles --keyword "销售"
+python scripts/dataease.py admin role-permissions --id 123 --scope all
 python scripts/dataease.py admin settings
 python scripts/dataease.py admin authentication
 python scripts/dataease.py admin integrations
@@ -117,6 +159,8 @@ python scripts/dataease.py admin role-create --spec role.json
 python scripts/dataease.py admin user-create --spec user.json
 python scripts/dataease.py admin role-edit --spec role.json
 python scripts/dataease.py admin role-edit --spec role.json --apply --plan-id plan-xxxxxxxx --confirm-token TOKEN
+python scripts/dataease.py admin role-permission-set --spec role-permissions.json
+python scripts/dataease.py admin role-permission-set --spec role-permissions.json --apply --plan-id plan-xxxxxxxx --confirm-token TOKEN
 python scripts/dataease.py admin user-edit --spec user.json
 python scripts/dataease.py admin user-edit --spec user.json --apply --plan-id plan-xxxxxxxx --confirm-token TOKEN
 python scripts/dataease.py admin user-enable --id 123 --account codex_user --enable false
@@ -124,7 +168,53 @@ python scripts/dataease.py admin user-reset-password --id 123 --account codex_us
 python scripts/dataease.py admin user-delete --id 123 --account codex_user --ack-no-rollback
 ```
 
-`role-edit` is always L3. `user-edit` is L3 only when the normalized `roleIds` set changes; otherwise it is L2 and the dry-run returns no confirmation token. `user-create` is L3 when a selected role is the DataEase administrator role (`root=true`, `readonly=false`), and L1 for ordinary roles. Always follow the risk and token returned by the dry-run instead of assuming a fixed level from the command name.
+`role-edit` only changes role metadata (`name` and `desc`) and is always L3. Use `role-permissions` and `role-permission-set` for one role's menu/resource matrices; use `permission apply` to orchestrate several resource scopes for either a user or role. These commands treat the spec as the complete desired direct-permission matrix, convert omissions to DataEase `weight: 0` revocations, snapshot and verify readback. `role-permission-set` deliberately rejects embedded row/column changes; manage those independent rules with L3 `model permission-save/delete`. If the target edition/version lacks the required endpoint, the command returns `capability_unavailable`. `user-edit` is L3 only when normalized `roleIds` change; otherwise it is L2. `user-create` is L3 when a selected role is the DataEase administrator role (`root=true`, `readonly=false`), and L1 for ordinary roles.
+
+### Data-filling task spec
+
+`task-create` normalizes the common aliases `assignUsers`/`reciUsers` to `uidList` and `rateValue` to `rateVal`. It rejects unknown fields before DataEase can silently ignore them. Prefer the official DTO names:
+
+```json
+{
+  "formId": 123,
+  "name": "月度数据收集",
+  "reciFlagList": [1],
+  "msgType": 0,
+  "msgTitle": "请填写月度数据",
+  "msgContent": "请在截止时间前完成填报。",
+  "uidList": [1001, 1002],
+  "ridList": [],
+  "fillType": 0,
+  "fitType": 0,
+  "fitColumn": "",
+  "rateType": 1,
+  "oneTimeType": 0,
+  "rateVal": "2026-08-01 09:00:00",
+  "startTime": 1785546000000,
+  "endTime": 1786150800000,
+  "publishRangeTime": 7,
+  "publishRangeTimeType": 1,
+  "status": 0,
+  "formExtSetting": "{}",
+  "formFilterSetting": "{}"
+}
+```
+
+Read the form/task detail from the target DataEase version before changing scheduling enums. `uidList` and `ridList` accept numeric IDs; comma-separated strings are normalized for compatibility.
+
+### Role permission spec
+
+```json
+{
+  "roleId": 123,
+  "scope": "dataset",
+  "permissions": [
+    {"id": 456, "weight": 7, "ext": 0}
+  ]
+}
+```
+
+Scopes are `menu`, `datasource`, `dataset`, `panel`, `screen` and `data_filling`; `dashboard` maps to `panel`, and `datav` maps to `screen`. Dataset permission items may additionally include official `columnPermissions` and `rowPermissions` objects. Preserve their server-returned shape instead of inventing filters.
 
 ## Settings, integrations and SSO
 

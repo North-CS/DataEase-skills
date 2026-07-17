@@ -1,25 +1,32 @@
 # Validation status
 
-Last validated against DataEase `2.10.25` on 2026-07-16. Re-run the checks after upgrading DataEase, changing edition, replacing the gateway, or modifying authentication.
+Last validated against DataEase `2.10.25` on 2026-07-17. Re-run the checks after upgrading DataEase, changing edition, replacing the gateway, or modifying authentication.
 
 ## Automated checks passed
 
-- 58 Python unit/regression tests, including administrator-role detection, role-edit L3 enforcement, dynamic user-edit risk and role-state plan invalidation.
+- 103 Python unit/regression tests, including DataV layout and aggregation preservation, component move/field/theme patching and identity allowlists, SQL/union/sync-policy model validation, secret-free L3 sync plans, portable ID mapping, plugin package hashing/multipart transport, solution metric/quality gates and permission readback/rollback, multi-dataset planning, organization-context isolation, strict filling-task DTO normalization, role/resource permission normalization, administrator-role detection, dynamic user-edit risk and runtime diagnostics.
 - Skill package structure and frontmatter validation (`Skill is valid!`).
-- CLI parser/help smoke tests for all nine domains.
+- CLI parser/help smoke tests for all 15 domains.
 - Fresh Python and npm installation from both the release staging directory and the unpacked ZIP.
-- 23/23 online capability probes available through AK/SK.
+- The 25/25 online capability baseline was available through AK/SK, including the role-permission matrix, plugin and driver probes.
 - Full read-only platform inventory with no failed module.
 - Credential scan found no configured DataEase credential in tracked or generated Skill files.
+- DataV deploy serialization preserves both explicit component layouts and distinct automatically generated layouts instead of replacing every component with one full-screen rectangle.
+- Filling-task aliases are normalized to the official DTO, conflicting aliases and unknown keys are rejected, and the normalized payload is digest-bound to the plan.
+- Role-permission matrices are covered by mocked endpoint lifecycle tests. An isolated test role was granted and then revoked real datasource, dataset and DataV permissions through the L3 plan/apply/readback path.
+- A real non-root role's menu, datasource, dataset, dashboard, DataV and data-filling permission matrices were read successfully through the new command without mutation.
+- A live three-dataset retail plan used every selected dataset and returned cross-dataset relationship candidates, KPI candidates and explicit confirmation requirements without creating a visualization.
 - Email setting account, password and recipient slots are masked.
 - Request-local connection, callback and recipient secrets are removed from server error messages/details.
 - Live no-write user-create dry-runs resolved the real role metadata correctly: the organization-administrator role produced L3 with a confirmation token, while the ordinary-user role produced L1 without a token.
+- DataEase source tags were compared for advanced adapter routing: 2.7 legacy visual detail, 2.8+ request-style detail, 2.10.10+ linkage resource-table path, plugin availability from 2.8 and native dataset export from 2.10. The mutation ceiling is `2.10.25`.
+- Advanced modules have both offline transformation/gate coverage and the isolated live lifecycle coverage listed below. Plugin mutation and true two-instance migration remain explicit gaps.
 
 ## Runtime-host validation
 
-- Windows x64 is the currently verified Skill execution host.
-- The live DataEase target and isolated external dependencies were exercised on CentOS Linux, but that does not count as running the Skill package itself under Linux.
-- Linux and macOS code paths are designed for portability but remain release-matrix gaps until the package, dependencies, CLI, L3 token flow and Playwright capture are run on those hosts.
+- Windows x64 is verified for the complete package, Python CLI, npm wrappers and Playwright capture paths.
+- The Skill's Python CLI, L3 plan/token flow and full unit/regression suite are also verified inside a constrained Linux container on the CentOS DataEase host.
+- Native Linux Playwright capture and all macOS paths remain release-matrix gaps.
 - Agent discovery and execution differ by client. See `compatibility.md`; do not convert a documentation-level compatibility claim into a tested claim without recording the client and version.
 
 ## Online isolated lifecycle checks passed
@@ -33,6 +40,17 @@ Last validated against DataEase `2.10.25` on 2026-07-16. Re-run the checks after
 - Dashboard: three-chart intelligent plan, unpublished create, API readback, 1920×1080 Playwright capture through ASK headers, L3 delete and no residue.
 - Failed data-source validation: expected API failure with request secret absent from the error result.
 - LDAP, OIDC, CAS, OAuth2 and SAML2 discovery/info endpoints: available and currently unconfigured.
+- MySQL physical, multi-table join, SQL and parameterized SQL datasets: deterministic DTO preparation, create, field/readback and preview paths.
+- Calculated field: create with void-response recovery and dataset-detail readback.
+- Row and column permissions: real user row filter and column prohibition create/readback/delete using exact DataEase `2.10.25` DTOs.
+- Existing DataV editing: component geometry/style, view title/filter, measure field/aggregation, theme and server-side linkage save/update/remove with snapshot-canvas readback.
+- Portable transfer: same-instance visual backup/restore/migrate with fresh internal view IDs and linkage recreation; dataset restore with table/field/expression ID remapping and row/column permission restoration.
+- Resource orchestration: isolated role grant/readback/revoke for datasource, three datasets and multiple DataV screens.
+- One-stop solution: two-dataset sample quality gate, confirmed KPI, five-chart unpublished DataV creation and role screen permission grant. Exact permission readback and compensating rollback are additionally regression-tested.
+- Plugin/driver inventory and plugin-package validation: live inventory plus valid/invalid archive inspection and L3 install dry-run; no package was installed.
+- Synchronization: live cron validation returned five next-run timestamps. Exact `syncSetting` persistence and silent-ignore rejection are regression-tested; the disposable direct-MySQL source has no scheduled-sync DTO.
+- Native dataset export returned a valid XLSX artifact.
+- DataEase `previewSql` on this version fails inside the server's SQL-log mapper because its reserved `sql` column is not quoted; SQL dataset create and normal preview paths still succeeded.
 
 ## External dependency checks passed
 
@@ -45,6 +63,8 @@ Last validated against DataEase `2.10.25` on 2026-07-16. Re-run the checks after
 
 ## Intentionally not claimed as end-to-end validated
 
+- True cross-instance portable restore/migrate against a second DataEase installation. The same-instance branch, collision handling, ID remapping and permission/linkage restoration are covered.
+- Plugin/database-driver install, upgrade, rollback or uninstall. Only package inspection and API/source compatibility are currently covered.
 - API/ExcelRemote data-source synchronization against a disposable remote source.
 - WeCom, Lark or Larksuite callback/login delivery using a real enterprise tenant. Their common API, redaction and L3 safety paths are covered, but DingTalk success does not prove provider-specific tenant behavior.
 - LDAP, CAS, OAuth2 or SAML2 login with an external identity provider. OIDC was validated only with the disposable Keycloak realm.

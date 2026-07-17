@@ -1,6 +1,6 @@
 ---
 name: dataease
-description: DataEase V2 智能平台技能，通过安全分级 CLI 探索数据并管理 DataEase。Use when Codex, OpenClaw or another Agent Skills-compatible tool needs to inspect or manage data sources, datasets, dashboards, DataV screens, data filling, organizations, users, roles, system settings, email, SSO, DingTalk, WeCom, Lark, scheduled reports or Webhooks; build and capture polished analytics; or diagnose connectivity, authentication, permissions and version compatibility on Windows, Linux or macOS.
+description: DataEase V2 智能平台技能，通过安全分级 CLI 探索数据、建模、编辑可视化并管理平台。Use when Codex, Claude Code, OpenClaw or another Agent Skills-compatible tool needs to model datasets; create or component-edit dashboards and DataV screens; orchestrate resource permissions; back up, restore or migrate resources; manage plugins/drivers; build a gated analytics solution; manage data filling, users, settings, SSO, enterprise integrations, reports or Webhooks; or diagnose DataEase version compatibility on Windows, Linux or macOS.
 ---
 
 # DataEase V2 智能平台技能
@@ -12,10 +12,14 @@ description: DataEase V2 智能平台技能，通过安全分级 CLI 探索数�
 | 功能模块 | 命令族 | 风险范围 |
 |---|---|---|
 | 连接诊断与平台盘点 | `system`、`inventory` | L0 |
-| 数据源、数据集与智能分析规划 | `datasource`、`dataset` | L0-L3 |
-| 仪表板与 DataV 大屏创建、发布、截图 | `visual` | L0-L3 |
+| 数据源、数据集、SQL/多表模型、计算字段与行列权限 | `datasource`、`dataset`、`model` | L0-L3 |
+| 仪表板与 DataV 创建、组件编辑、联动、主题、发布、截图 | `visual` | L0-L3 |
+| 用户/角色到具体业务资源的权限编排 | `permission` | L0-L3 |
+| 可移植备份、恢复、跨实例迁移与原生导出 | `transfer` | L0-L3 |
+| 插件与数据库驱动检查、安装、升级、回滚 | `plugin`、`driver` | L0-L3 |
+| 数据质量→指标→模型→大屏→权限→报告一站式编排 | `solution` | L0-L3 |
 | 数据填报表单、任务与数据行 | `filling` | L0-L3 |
-| 组织、用户与角色管理 | `admin organization-*`、`role-*`、`user-*` | L0-L3 |
+| 组织、用户、角色与权限矩阵 | `admin organization-*`、`role-*`、`user-*` | L0-L3 |
 | 系统设置、邮件、MFA、HMAC 与 SSO | `admin setting-*`、`sso-*` | L0-L3 |
 | 钉钉、企微、飞书和 Larksuite | `admin integration-*` | L0-L3 |
 | 定时报告与 Webhook | `report`、`webhook` | L0-L3 |
@@ -50,6 +54,7 @@ python scripts/dataease.py system doctor
 2. 只读取本次任务需要的参考：
    - 平台和数据能力：[references/platform.md](references/platform.md)
    - 大屏与仪表板设计：[references/visualization.md](references/visualization.md)
+   - 高级平台编排与规格：[references/advanced.md](references/advanced.md)
    - 命令和结果契约：[references/commands.md](references/commands.md)
    - DTO 规格示例：[references/specs.md](references/specs.md)
    - 风险、确认和回滚：[references/safety.md](references/safety.md)
@@ -60,6 +65,8 @@ python scripts/dataease.py system doctor
 5. 用户确认后重复同一配置，并传入 `--apply --plan-id <id>`；L3 再传 `--confirm-token <token>`。
 6. 回读并验证；目标、组织、版本、角色状态或请求载荷变化时废弃旧计划。
 
+所有入口使用同一个显式组织上下文：在 `.env` 设置 `DATAEASE_ORG_ID`，或把全局 `--org-id` 放在域命令之前。不要依赖一个进程执行 `switch-org` 后让另一个进程继承内存 Token；不要打印或持久化组织 Token。
+
 ## 智能大屏与仪表板
 
 先分析数据，再生成可视化方案：
@@ -67,15 +74,21 @@ python scripts/dataease.py system doctor
 ```bash
 python scripts/dataease.py dataset profile --dataset "销售数据"
 python scripts/dataease.py dataset plan --dataset "销售数据" --title "销售经营分析" --busi-type dataV
+python scripts/dataease.py dataset plan --dataset "销售" --dataset "目标" --dataset "库存" --title "经营驾驶舱" --busi-type dataV
+python scripts/dataease.py visual inspect --resource-id 123 --busi-type dataV
+python scripts/dataease.py solution plan --spec sales-solution.json
 ```
 
-审阅生成的 visual spec，校正业务口径后传给 `visual create --spec`。自动字段角色、聚合方式和 KPI 只是建议，不得把它们当作已经确认的业务定义。
+审阅生成的 visual spec，校正业务口径后传给 `visual create --spec`。自动字段角色、聚合方式和 KPI 只是建议，不得把它们当作已经确认的业务定义。修改已有资源使用 `visual inspect` 后再做 `visual patch`；不得凭猜测填写组件 ID、字段 ID 或联动 DTO。
 
 ## 安全边界
 
 - 创建普通用户为 L1；创建带管理员角色的用户为 L3。
 - 普通用户资料编辑为 L2；`roleIds` 发生变化立即升为 L3。
 - `role-edit` 统一为 L3，防止角色定义或权限相关变更绕过确认。
+- `role-edit` 只编辑名称/描述；单角色矩阵使用 `role-permissions`/`role-permission-set`，跨用户/角色与多资源范围使用 L3 `permission apply`。独立的数据集行列规则使用 L3 `model permission-*`。接口不存在或变更无法安全回读时返回 `capability_unavailable`，不得暗中改用 UI 自动化。
+- `visual patch` 和 `model save` 为 L2；资源授权、行列权限、跨实例恢复、一站式执行及插件/驱动变更为 L3。
+- `system adapter` 必须先确认目标版本。高于已验证上限的版本默认只读；不得在未验证版本上自动放开写操作。
 - 删除、清空、启动/立即执行报告、认证/集成变更、禁用用户、数据源连接/结构变更和插件操作均为 L3。
 - L3 没有回滚说明或明确的不可回滚确认时拒绝执行。
 - DataEase 版本、目标快照、组织上下文、请求摘要和管理员角色状态均绑定计划；不允许复用、伪造或降级计划。

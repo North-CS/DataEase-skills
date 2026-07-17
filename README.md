@@ -6,10 +6,12 @@
 
 | 模块 | 能力 |
 |---|---|
-| 数据与分析 | 数据源/数据集盘点、字段分析、数据画像、智能可视化规划 |
-| 仪表板与 DataV | 创建、发布、截图、PDF、主题与自动布局 |
+| 数据与分析 | 数据源/数据集盘点、SQL/多表模型、计算字段、参数、行列权限、数据画像、多数据集规划 |
+| 仪表板与 DataV | 创建、组件级移动/换字段、筛选/联动、主题/布局、发布、截图、PDF |
+| 权限与迁移 | 用户/角色资源授权、可移植备份/恢复、跨环境 ID 映射和迁移 |
+| 扩展与智能编排 | 插件/数据库驱动生命周期，以及质量→指标→模型→大屏→权限→报告流水线 |
 | 数据填报 | 表单、任务和数据行的查询与安全变更 |
-| 平台管理 | 组织、用户、角色、系统设置和邮件配置 |
+| 平台管理 | 组织、用户、角色、权限矩阵、系统设置和邮件配置 |
 | 认证与集成 | MFA、HMAC、LDAP、OIDC、CAS、OAuth2、SAML2、钉钉、企微、飞书 |
 | 自动化 | 定时报告、执行日志、Webhook 和投递状态 |
 | 安全治理 | L0-L3 风险分级、计划绑定、确认令牌、脱敏、快照、回滚说明和审计 |
@@ -57,6 +59,7 @@ DATAEASE_SECRET_KEY=your_secret_key
 ```bash
 python scripts/dataease.py system doctor
 python scripts/dataease.py system capabilities
+python scripts/dataease.py system adapter
 python scripts/dataease.py inventory scan
 ```
 
@@ -73,6 +76,10 @@ python scripts/dataease.py inventory scan
 ```bash
 python scripts/dataease.py dataset profile --dataset "销售数据"
 python scripts/dataease.py dataset plan --dataset "销售数据" --title "销售经营分析" --busi-type dataV
+python scripts/dataease.py dataset plan --dataset "销售" --dataset "目标" --dataset "库存" --title "经营驾驶舱" --busi-type dataV
+python scripts/dataease.py visual inspect --resource-id 123 --busi-type dataV
+python scripts/dataease.py model inspect --dataset-id 456
+python scripts/dataease.py solution plan --spec sales-solution.json
 ```
 
 ## 高风险操作
@@ -82,7 +89,7 @@ python scripts/dataease.py dataset plan --dataset "销售数据" --title "销售
 - L2：普通更新或发布，展示变更后按计划执行。
 - L3：权限、认证、集成、删除、清空、管理员创建等操作，必须提供计划返回的确认令牌。
 
-角色编辑、用户角色变化和管理员用户创建均属于 L3。安全约束由 Python CLI 强制执行，不依赖 Agent 的文字提醒。
+角色编辑、角色权限矩阵变化、用户角色变化和管理员用户创建均属于 L3。安全约束由 Python CLI 强制执行，不依赖 Agent 的文字提醒。
 
 ## 兼容性与文档
 
@@ -94,6 +101,7 @@ python scripts/dataease.py dataset plan --dataset "销售数据" --title "销售
 
 - [Skill 主说明](SKILL.md)
 - [命令参考](references/commands.md)
+- [高级平台编排](references/advanced.md)
 - [安全与确认](references/safety.md)
 - [操作系统与 Agent 兼容性](references/compatibility.md)
 - [验证状态](references/validation.md)
