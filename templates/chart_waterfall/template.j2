@@ -1,0 +1,159 @@
+{
+  "canvasStyleData": "{\"width\":1920,\"height\":1080,\"scale\":100,\"scaleWidth\":100,\"scaleHeight\":100,\"backgroundColorSelect\":true,\"backgroundImageEnable\":false,\"backgroundType\":\"backgroundColor\",\"background\":\"\",\"color\":\"#000000\",\"backgroundColor\":\"#f5f6f7\",\"dashboard\":{\"gap\":\"yes\",\"gapSize\":5,\"showGrid\":false,\"resultMode\":\"all\",\"resultCount\":1000,\"themeColor\":\"light\"},\"component\":{\"chartTitle\":{\"show\":true,\"fontSize\":16,\"hPosition\":\"left\",\"vPosition\":\"top\",\"isBolder\":true,\"color\":\"#000000\"},\"chartColor\":{\"basicStyle\":{\"colorScheme\":\"default\",\"colors\":[\"#1E90FF\",\"#90EE90\",\"#00CED1\",\"#E2BD84\",\"#7A90E0\",\"#3BA272\",\"#2BE7FF\",\"#0A8ADA\",\"#FFD700\"],\"alpha\":100,\"gradient\":false,\"radius\":80,\"innerRadius\":60,\"waterfallIncreaseColor\":\"#EF5350\",\"waterfallDecreaseColor\":\"#26A69A\",\"waterfallTotalColor\":\"#1E90FF\"}},\"chartCommonStyle\":{\"backgroundColorSelect\":true,\"backdropFilterEnable\":false,\"backgroundImageEnable\":false,\"backgroundType\":\"innerImage\",\"innerImage\":\"board/board_1.svg\",\"innerPadding\":{\"mode\":\"uniform\",\"top\":12},\"borderRadius\":{\"mode\":\"uniform\",\"topLeft\":0},\"backgroundColor\":\"rgba(255,255,255,1)\"}}}",
+  "componentData": "[{\"animations\":[],\"canvasId\":\"canvas-main\",\"events\":{\"checked\":false,\"showTips\":false,\"type\":\"jump\"},\"carousel\":{\"enable\":false,\"time\":10},\"multiDimensional\":{\"enable\":false},\"groupStyle\":{},\"isLock\":false,\"maintainRadio\":false,\"aspectRatio\":1,\"isShow\":true,\"dashboardHidden\":false,\"category\":\"base\",\"component\":\"UserView\",\"name\":\"瀑布图\",\"label\":\"瀑布图\",\"icon\":\"waterfall\",\"innerType\":\"waterfall\",\"editing\":false,\"canvasActive\":false,\"x\":1,\"y\":1,\"sizeX\":72,\"sizeY\":36,\"style\":{\"rotate\":0,\"opacity\":1,\"borderActive\":false,\"borderWidth\":1,\"borderRadius\":5,\"width\":1920,\"height\":1080,\"left\":0,\"top\":0},\"commonBackground\":{\"backgroundColorSelect\":true,\"backdropFilterEnable\":false,\"backgroundImageEnable\":false,\"backgroundType\":\"innerImage\",\"innerImage\":\"board/board_1.svg\",\"innerPadding\":{\"mode\":\"uniform\",\"top\":12},\"borderRadius\":{\"mode\":\"uniform\",\"topLeft\":0},\"backgroundColor\":\"rgba(255,255,255,1)\"},\"state\":\"ready\",\"render\":\"antv\",\"isPlugin\":false,\"id\":\"{{ VIEW_ID }}\",\"_dragId\":0,\"linkageFilters\":[],\"expand\":false}]",
+  "canvasViewInfo": {
+    "{{ VIEW_ID }}": {
+      "id": "{{ VIEW_ID }}",
+      "title": "瀑布图",
+      "sceneId": "{{ SCENE_ID }}",
+      "tableId": "{{ DATASET_GROUP_ID }}",
+      "type": "waterfall",
+      "render": "antv",
+      "resultCount": 1000,
+      "resultMode": "custom",
+      "extStack": [],
+      "extBubble": [],
+      "extLabel": [],
+      "extTooltip": [],
+      "customAttr": {
+        "basicStyle": {
+          "alpha": 100,
+          "colorScheme": "default",
+          "colors": ["#EF5350", "#26A69A", "#1E90FF"],
+          "gradient": false,
+          "lineWidth": 2,
+          "lineSymbolSize": 4,
+          "radius": 80,
+          "innerRadius": 60,
+          "waterfallIncreaseColor": "#EF5350",
+          "waterfallDecreaseColor": "#26A69A",
+          "waterfallTotalColor": "#1E90FF",
+          "columnWidthRatio": 60,
+          "showTotal": true,
+          "totalLabel": "合计"
+        },
+        "label": {
+          "show": true,
+          "color": "#000000",
+          "fontSize": 12,
+          "position": "top"
+        },
+        "tooltip": {
+          "show": true,
+          "trigger": "axis",
+          "confine": true,
+          "fontSize": 12,
+          "color": "#000000",
+          "backgroundColor": "#FFFFFF"
+        }
+      },
+      "customStyle": {
+        "text": {
+          "show": true,
+          "fontSize": 16,
+          "hPosition": "left",
+          "vPosition": "top",
+          "isBolder": true,
+          "color": "#000000"
+        },
+        "legend": {
+          "show": true,
+          "hPosition": "center",
+          "vPosition": "bottom",
+          "orient": "horizontal",
+          "icon": "circle",
+          "color": "#000000",
+          "fontSize": 12
+        },
+        "xAxis": {
+          "show": true,
+          "position": "bottom",
+          "color": "#000000",
+          "fontSize": 12,
+          "axisLabel": {"show": true, "color": "#000000", "fontSize": 12, "rotate": 0},
+          "axisLine": {"show": true, "lineStyle": {"color": "#cccccc", "width": 1}},
+          "splitLine": {"show": false, "lineStyle": {"color": "#CCCCCC", "width": 1}}
+        },
+        "yAxis": {
+          "show": true,
+          "position": "left",
+          "color": "#000000",
+          "fontSize": 12,
+          "axisLabel": {"show": true, "color": "#000000", "fontSize": 12, "rotate": 0},
+          "axisLine": {"show": false, "lineStyle": {"color": "#cccccc", "width": 1}},
+          "splitLine": {"show": true, "lineStyle": {"color": "#CCCCCC", "width": 1, "style": "solid"}}
+        }
+      },
+      "drillFields": [],
+      "senior": {
+        "functionCfg": {"emptyDataStrategy": "ignoreData"},
+        "assistLineCfg": {"enable": false, "assistLine": []},
+        "threshold": {"enable": false}
+      },
+      "stylePriority": "panel",
+      "chartType": "private",
+      "isPlugin": false,
+      "dataFrom": "calc",
+      "viewFields": [],
+      "refreshViewEnable": false,
+      "xAxis": [
+        {
+          "id": "{{ XAXIS_FIELD_ID }}",
+          "datasourceId": "{{ DATASOURCE_ID }}",
+          "datasetTableId": "{{ DATASET_TABLE_ID }}",
+          "datasetGroupId": "{{ DATASET_GROUP_ID }}",
+          "originName": "category",
+          "name": "分类",
+          "dbFieldName": null,
+          "description": "分类",
+          "dataeaseName": "{{ XAXIS_DE_NAME }}",
+          "groupType": "d",
+          "type": "VARCHAR",
+          "deType": 0,
+          "deExtractType": 0,
+          "extField": 0,
+          "checked": true,
+          "summary": "none",
+          "sort": "none",
+          "chartType": "waterfall",
+          "hide": false
+        }
+      ],
+      "xAxisExt": [],
+      "yAxis": [
+        {
+          "id": "{{ YAXIS_FIELD_ID }}",
+          "datasourceId": "{{ DATASOURCE_ID }}",
+          "datasetTableId": "{{ DATASET_TABLE_ID }}",
+          "datasetGroupId": "{{ DATASET_GROUP_ID }}",
+          "originName": "amount",
+          "name": "金额",
+          "dbFieldName": null,
+          "description": "金额",
+          "dataeaseName": "{{ YAXIS_DE_NAME }}",
+          "groupType": "q",
+          "type": "DECIMAL",
+          "deType": 2,
+          "deExtractType": 2,
+          "extField": 0,
+          "checked": true,
+          "summary": "sum",
+          "sort": "none",
+          "chartType": "waterfall",
+          "hide": false,
+          "seriesId": "{{ YAXIS_FIELD_ID }}-yAxis"
+        }
+      ],
+      "yAxisExt": []
+    }
+  },
+  "id": "{{ SCENE_ID }}",
+  "name": "瀑布图",
+  "pid": "0",
+  "status": 1,
+  "selfWatermarkStatus": true,
+  "type": "dashboard",
+  "contentId": "{{ CONTENT_ID }}",
+  "mobileLayout": false,
+  "checkVersion": "2.10.20"
+}

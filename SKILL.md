@@ -1,6 +1,6 @@
 ---
 name: dataease
-description: DataEase V2 智能平台技能，通过安全分级 CLI 探索数据、建模、编辑可视化并管理平台。Use when Codex, Claude Code, OpenClaw or another Agent Skills-compatible tool needs to model datasets; create or component-edit dashboards and DataV screens; orchestrate resource permissions; back up, restore or migrate resources; manage plugins/drivers; build a gated analytics solution; manage data filling, users, settings, SSO, enterprise integrations, reports or Webhooks; or diagnose DataEase version compatibility on Windows, Linux or macOS.
+description: DataEase V2 platform skill — safe CLI for data exploration, modeling, dashboard/DataV editing, and platform management. 通过安全分级 CLI 探索数据、建模、编辑可视化并管理 DataEase V2 平台。Use when you need to model datasets; create or component-edit dashboards and DataV screens; orchestrate resource permissions; back up, restore or migrate resources; manage plugins/drivers; build a gated analytics solution; manage data filling, users, settings, SSO, enterprise integrations, reports or Webhooks; or diagnose DataEase version compatibility.
 ---
 
 # DataEase V2 智能平台技能
@@ -37,14 +37,44 @@ description: DataEase V2 智能平台技能，通过安全分级 CLI 探索数�
 复制 `.env.example` 为 `.env`。系统 API 优先使用 AK/SK，用户会话可使用用户名和密码。不得打印或提交 `.env`，也不得把密钥放进命令参数。
 
 ```bash
+# Python 安装 (推荐)
 python -m venv .venv
+source .venv/bin/activate # Windows: .venv\Scripts\activate
 python -m pip install -r requirements.txt
-npm install
-npx playwright install chromium
-python scripts/dataease.py system doctor
+pip install -e .  # 安装 dataease-skill 包，使模块可直接 import
+
+# Node.js / 截图依赖 (可选，跳过也能正常使用 CLI)
+npm install  # postinstall 自动安装 Chromium；不可用时降级提示
+
+# 验证安装
+dataease system doctor  # 如果使用了 pip install -e .
+# 或者: python scripts/dataease.py system doctor
 ```
 
-使用当前虚拟环境的解释器：Windows 通常是 `python`，Linux/macOS 通常是 `python3`；跨平台脚本调用应优先使用 `python -m` 或当前解释器，不要写死系统路径。
+使用当前虚拟环境的解释器：Windows 通常是 `python`，Linux/macOS 通常是 `python3`；跨平台脚本调用应优先使用 `python -m` 或当前解释器，不要写死系统路径。安装 `pip install -e .` 后可直接使用 `dataease` 入口命令，无需每次设置 `PYTHONPATH`。
+
+如果 Playwright Chromium 安装超时（常见于受限网络/沙箱环境），设置 `DATAEASE_SKIP_BROWSER_INSTALL=1` 跳过。截图功能不可用，但 CLI 其他功能不受影响。事后可手动运行 `npx playwright install chromium` 重试。
+
+### 克隆故障排除
+
+如果 `git clone` 因残留目录失败且无法删除（沙箱环境中 `.git` 目录常受权限限制无法直接 `rm -rf`），需要进行两步操作：
+
+1. 调 Agent 的文件删除授权接口（如 `allow_cowork_file_delete`）
+2. 授权通过后再 `rm -rf` 清理残余目录
+
+不要反复重试 clone 或使用 `--force`；先用授权路径清理再重新克隆。
+
+### Python 导入方式
+
+支持两种导入方式：
+
+```bash
+# 方式 1: pip install -e . 完成后直接 import
+python -c "from dataease_skill.client import DataEaseClient"
+
+# 方式 2: 传统 PYTHONPATH（始终可用）
+PYTHONPATH=scripts python -c "from dataease_skill.client import DataEaseClient"
+```
 
 默认代理模式为 `DATAEASE_PROXY_MODE=auto`：本机和私网 DataEase 地址绕过环境代理，公网地址保留代理。私有 CA 使用 `DATAEASE_CA_BUNDLE`；只在已知测试实例上使用 `--insecure`。
 
@@ -72,14 +102,44 @@ python scripts/dataease.py system doctor
 先分析数据，再生成可视化方案：
 
 ```bash
+# 数据探查
 python scripts/dataease.py dataset profile --dataset "销售数据"
+python scripts/dataease.py dataset preview --dataset "销售数据"      # 数据预览 (graceful degradation)
+python scripts/dataease.py dataset data --dataset "销售数据" --limit 20
+
+# 智能图表规划 (支持 7 种图表类型，含 K线/仪表盘/瀑布图)
 python scripts/dataease.py dataset plan --dataset "销售数据" --title "销售经营分析" --busi-type dataV
 python scripts/dataease.py dataset plan --dataset "销售" --dataset "目标" --dataset "库存" --title "经营驾驶舱" --busi-type dataV
 python scripts/dataease.py visual inspect --resource-id 123 --busi-type dataV
 python scripts/dataease.py solution plan --spec sales-solution.json
 ```
 
-审阅生成的 visual spec，校正业务口径后传给 `visual create --spec`。自动字段角色、聚合方式和 KPI 只是建议，不得把它们当作已经确认的业务定义。修改已有资源使用 `visual inspect` 后再做 `visual patch`；不得凭猜测填写组件 ID、字段 ID 或联动 DTO。
+审阅生成的 visual spec，校正业务口径后传给 `visual create --spec`。
+
+### 支持的图表类型
+
+| 类型 | 模板名称 | plan 自动识别 |
+|---|---|---|
+| 柱状图 | `bar` | 有维度 + 指标 (默认) |
+| 折线图 | `line` | 有日期字段 |
+| 饼图 | `pie` | 有维度 + 单个指标 |
+| 明细表 | `table_info` | 始终生成 |
+| K 线图 | `candle` | OHLC 四价 (open/high/low/close) |
+| 仪表盘 | `gauge` | 当前值/得分 (current/value/score) |
+| 瀑布图 | `waterfall` | 金额/盈亏 (amount/revenue/cost/profit) |
+
+### 数据集预览
+
+`dataset preview` 对直连数据库型数据集 (mode=0) 提供 graceful degradation：
+
+1. 先尝试 `/datasetData/previewData` 获取数据行
+2. 服务端 NPE 时自动降级到字段元数据
+3. 回退到 `/datasetTree/details` 获取物理表名
+4. 始终输出 `degraded` 标记和 `workaround` 指引
+
+Agent 调用 `dataset profile` 前应先执行一次 `dataset preview`，根据结果决定是否需要引导用户到 Web UI。
+
+自动字段角色、聚合方式和 KPI 只是建议，不得把它们当做已经确认的业务定义。修改已有资源使用 `visual inspect` 后再做 `visual patch`；不得凭猜测填写组件 ID、字段 ID 或联动 DTO。
 
 ## 安全边界
 
@@ -97,6 +157,8 @@ python scripts/dataease.py solution plan --spec sales-solution.json
 ## 结果处理
 
 统一 CLI 输出一个 JSON 文档，包含 `ok`、`operation`、`result`、`changes`、`artifacts`、`warnings` 和适用时的 `audit_id`。失败时返回脱敏的结构化错误并以非零状态退出。
+
+列表命令 (`datasource list`、`dataset list`) 现在返回结构化对象：`{total_count: N, items: [...]}`。使用 `--summary` flag 可额外获得按类型/路径的分组统计，避免对大列表手动计数。
 
 在 Codex 中用绝对 Markdown 路径展示本地文件；OpenClaw 需要时使用 `MEDIA:<absolute_path>`；其他 Agent 按其宿主的附件协议处理。始终返回可用的 DataEase 预览 URL。报告收件人、Webhook 完整 URL、数据源密码、平台/SSO 密钥和用户敏感信息不得进入计划或公开结果。
 

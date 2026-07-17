@@ -955,10 +955,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     dataset = domains.add_parser("dataset")
     dataset_actions = dataset.add_subparsers(dest="action", required=True)
-    dataset_actions.add_parser("list")
-    for action in ("fields", "profile"):
+    dataset_list = dataset_actions.add_parser("list")
+    dataset_list.add_argument("--summary", action="store_true", help="按类型和路径分组统计")
+    for action in ("fields", "profile", "preview"):
         command = dataset_actions.add_parser(action)
         command.add_argument("--dataset", required=True)
+    data_cmd = dataset_actions.add_parser("data")
+    data_cmd.add_argument("--dataset", required=True)
+    data_cmd.add_argument("--limit", type=int, default=50, help="预览行数上限")
     plan = dataset_actions.add_parser("plan")
     plan.add_argument("--dataset", required=True, action="append", help="可重复传入以规划跨数据集大屏")
     plan.add_argument("--title", required=True)
@@ -1105,7 +1109,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     datasource = domains.add_parser("datasource")
     datasource_actions = datasource.add_subparsers(dest="action", required=True)
-    datasource_actions.add_parser("list")
+    datasource_list = datasource_actions.add_parser("list")
+    datasource_list.add_argument("--summary", action="store_true", help="按类型和路径分组统计")
     datasource_actions.add_parser("types")
     ds_tables = datasource_actions.add_parser("tables")
     ds_tables.add_argument("--datasource-id", required=True)
@@ -1468,12 +1473,15 @@ def run(argv: list[str] | None = None) -> int:
             elif key == "inventory.scan":
                 result = _envelope(key, platform.inventory())
             elif key == "dataset.list":
-                result = _envelope(key, datasets.list())
+                result = _envelope(key, datasets.list(summary=args.summary))
             elif key == "dataset.fields":
                 dataset, fields = datasets.fields(args.dataset)
                 result = _envelope(key, {"dataset": dataset, "fields": fields})
             elif key == "dataset.profile":
                 result = _envelope(key, datasets.profile(args.dataset))
+            elif key in {"dataset.preview", "dataset.data"}:
+                limit = getattr(args, "limit", 50)
+                result = _envelope(key, datasets.preview(args.dataset, limit=limit))
             elif key == "dataset.plan":
                 profiles = [datasets.profile(dataset_name) for dataset_name in args.dataset]
                 result = _envelope(key, build_visual_plan(profiles, args.title, args.busi_type))
@@ -1488,7 +1496,15 @@ def run(argv: list[str] | None = None) -> int:
             elif args.domain == "solution":
                 result = handle_solution_operation(args, settings, client, plans, audit)
             elif key == "datasource.list":
-                result = _envelope(key, platform.datasources())
+                items = platform.datasources()
+                result_data: dict[str, Any] = {"total_count": len(items), "items": items}
+                if getattr(args, "summary", False):
+                    by_type: dict[str, int] = {}
+                    for item in items:
+                        t = str(item.get("nodeType") or item.get("type") or "unknown")
+                        by_type[t] = by_type.get(t, 0) + 1
+                    result_data["summary"] = {"by_type": by_type}
+                result = _envelope(key, result_data)
             elif key == "datasource.types":
                 result = _envelope(key, client.data("GET", "/datasource/types"))
             elif key == "datasource.tables":

@@ -127,6 +127,25 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         label.update({"color": "#EAF8FF", "fontSize": 12})
         if chart_type == "pie":
             label.update({"show": True, "position": "outside", "showProportion": True})
+        if chart_type == "candle":
+            custom_attr.setdefault("basicStyle", {}).update({
+                "candleUpColor": "#EF5350",
+                "candleDownColor": "#26A69A",
+                "candleLineColor": "rgba(0,217,255,0.48)",
+            })
+        if chart_type == "gauge":
+            custom_attr.setdefault("misc", {}).update({
+                "valueFontColor": "#00D9FF",
+                "nameFontColor": "#BDEBFF",
+                "gaugeStartAngle": 225,
+                "gaugeEndAngle": -45,
+            })
+        if chart_type == "waterfall":
+            custom_attr.setdefault("basicStyle", {}).update({
+                "waterfallIncreaseColor": "#EF5350",
+                "waterfallDecreaseColor": "#26A69A",
+                "waterfallTotalColor": "#00D9FF",
+            })
         custom_attr.setdefault("tooltip", {}).update({
             "color": "#EAF8FF", "backgroundColor": "rgba(4,14,34,0.94)"
         })

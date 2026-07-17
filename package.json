@@ -1,9 +1,13 @@
 {
   "name": "dataease-skill",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Safe DataEase V2 automation, administration, analytics, dashboard and DataV skill",
   "dependencies": {
     "pdf-lib": "^1.17.1",
     "playwright": "^1.59.1"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install-browsers.js",
+    "capture": "node scripts/browser_capture.mjs"
   }
 }

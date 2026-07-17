@@ -5,6 +5,20 @@ from collections import defaultdict
 from typing import Any
 
 
+OHLC_PATTERN = re.compile(
+    r"(open|开盘|close|收盘|high|最高|low|最低|volume|成交量|成交额|amount|turnover)",
+    re.I,
+)
+GAUGE_PATTERN = re.compile(
+    r"(current|当前|value|数值|score|得分|rate|比率|progress|进度)",
+    re.I,
+)
+WATERFALL_PATTERN = re.compile(
+    r"(金额|收入|支出|利润|成本|费用|亏损|盈利|amount|revenue|income|expense|cost|profit|loss)",
+    re.I,
+)
+
+
 def _profiles(value: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
     profiles = value if isinstance(value, list) else [value]
     if not profiles or any(not isinstance(item, dict) or not isinstance(item.get("dataset"), dict) for item in profiles):
@@ -92,6 +106,65 @@ def _relationship_candidates(profiles: list[dict[str, Any]]) -> list[dict[str, A
     return relationships
 
 
+def _detect_ohlc_pattern(profile: dict[str, Any]) -> dict[str, Any] | None:
+    """Detect OHLC four-price structure for candlestick charts."""
+    measures = profile.get("measures", [])
+    dates = profile.get("dates", [])
+    if not dates:
+        return None
+    ohlc_keys = {"open", "close", "high", "low", "开盘价", "收盘价", "最高价", "最低价", "开盘", "收盘", "最高", "最低"}
+    matched = [m for m in measures if m.get("name", "") in ohlc_keys or OHLC_PATTERN.search(m.get("name", ""))]
+    if len(matched) >= 4:
+        return {
+            "type": "candle",
+            "pattern": "ohlc",
+            "confidence": "high",
+            "fields": [m["name"] for m in matched[:4]],
+            "date_field": dates[0]["name"] if dates else None,
+        }
+    return None
+
+
+def _detect_gauge_pattern(profile: dict[str, Any]) -> dict[str, Any] | None:
+    """Detect current-value + max-value pair for gauge charts."""
+    measures = profile.get("measures", [])
+    dims = profile.get("dimensions", [])
+    identifiers = profile.get("identifiers", [])
+    if not measures:
+        return None
+    gauge_measures = [m for m in measures if GAUGE_PATTERN.search(m.get("name", ""))]
+    if len(gauge_measures) >= 1:
+        label = dims[0]["name"] if dims else identifiers[0]["name"] if identifiers else None
+        return {
+            "type": "gauge",
+            "pattern": "current_value",
+            "confidence": "medium",
+            "fields": [m["name"] for m in gauge_measures[:2]],
+            "label_field": label,
+        }
+    return None
+
+
+def _detect_waterfall_pattern(profile: dict[str, Any]) -> dict[str, Any] | None:
+    """Detect positive/negative amount structure for waterfall charts."""
+    measures = profile.get("measures", [])
+    dims = profile.get("dimensions", [])
+    identifiers = profile.get("identifiers", [])
+    category = dims[0]["name"] if dims else identifiers[0]["name"] if identifiers else None
+    if not measures or not category:
+        return None
+    waterfall_measures = [m for m in measures if WATERFALL_PATTERN.search(m.get("name", ""))]
+    if waterfall_measures:
+        return {
+            "type": "waterfall",
+            "pattern": "pnl_amount",
+            "confidence": "medium",
+            "fields": [m["name"] for m in waterfall_measures[:2]],
+            "category_field": category,
+        }
+    return None
+
+
 def build_visual_plan(
     profile: dict[str, Any] | list[dict[str, Any]],
     title: str,
@@ -165,6 +238,45 @@ def build_visual_plan(
             recommendations.append(f"发布前检查数据集“{dataset_name}”敏感字段的列权限与脱敏规则。")
         if not dates:
             recommendations.append(f"数据集“{dataset_name}”未识别到日期字段，无法自动生成时间趋势图。")
+
+        ohlc = _detect_ohlc_pattern(current)
+        if ohlc:
+            charts.append({
+                "type": "candle",
+                "title": _qualified_title(dataset_name, f"{ohlc['fields'][0] if ohlc['fields'] else '价格'}走势 (K线)", multi),
+                "dataset_name": str(dataset["id"]),
+                "x_axis": [ohlc["date_field"]] if ohlc["date_field"] else dates[:1],
+                "y_axis": ohlc["fields"],
+                "y_aggregations": ["last" for _ in ohlc["fields"]],
+                "intent": "ohlc",
+            })
+            recommendations.append(f"数据集“{dataset_name}”识别到 OHLC 四价结构，已推荐 K 线图。")
+
+        gauge = _detect_gauge_pattern(current)
+        if gauge:
+            charts.append({
+                "type": "gauge",
+                "title": _qualified_title(dataset_name, f"{gauge['fields'][0]}进度", multi),
+                "dataset_name": str(dataset["id"]),
+                "x_axis": [gauge["label_field"]] if gauge["label_field"] else identifiers[:1],
+                "y_axis": gauge["fields"][:1],
+                "y_aggregations": ["max"],
+                "intent": "gauge",
+            })
+            recommendations.append(f"数据集“{dataset_name}”识别到当前值+最大值结构，已推荐仪表盘。")
+
+        waterfall = _detect_waterfall_pattern(current)
+        if waterfall:
+            charts.append({
+                "type": "waterfall",
+                "title": _qualified_title(dataset_name, f"{waterfall['fields'][0]}瀑布分析", multi),
+                "dataset_name": str(dataset["id"]),
+                "x_axis": [waterfall["category_field"]],
+                "y_axis": waterfall["fields"][:1],
+                "y_aggregations": ["sum"],
+                "intent": "waterfall",
+            })
+            recommendations.append(f"数据集“{dataset_name}”识别到盈亏金额结构，已推荐瀑布图。")
 
     if not usable_profiles:
         raise ValueError("所选数据集中没有可识别的指标字段，无法自动规划图表")

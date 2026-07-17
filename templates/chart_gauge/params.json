@@ -1,0 +1,24 @@
+{
+  "_comment": "chart_gauge (仪表盘) template params — single-measure value vs max",
+  "view": {
+    "VIEW_ID": "{{ VIEW_ID }}",
+    "CONTENT_ID": "{{ CONTENT_ID }}",
+    "SCENE_ID": "0"
+  },
+  "dataset": {
+    "DATASOURCE_ID": "{{ DATASOURCE_ID }}",
+    "DATASET_TABLE_ID": "{{ DATASET_TABLE_ID }}",
+    "DATASET_GROUP_ID": "{{ DATASET_GROUP_ID }}"
+  },
+  "fields": {
+    "xAxis": {
+      "XAXIS_FIELD_ID": "{{ XAXIS_FIELD_ID }}",
+      "XAXIS_DE_NAME": "{{ XAXIS_DE_NAME }}"
+    },
+    "yAxis": {
+      "YAXIS_FIELD_ID": "{{ YAXIS_FIELD_ID }}",
+      "YAXIS_DE_NAME": "{{ YAXIS_DE_NAME }}",
+      "YAXIS_SERIES_ID": "{{ YAXIS_FIELD_ID }}-yAxis"
+    }
+  }
+}
