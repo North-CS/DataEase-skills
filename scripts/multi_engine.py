@@ -18,6 +18,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         "#00D9FF", "#7C5CFF", "#20E3B2", "#FFB347", "#FF5DA2",
         "#4D96FF", "#9DFFB0", "#A78BFA", "#22D3EE",
     ]
+    SUPPORTED_AGGREGATIONS = {"sum", "avg", "max", "min", "count", "count_distinct"}
 
     def _asset_data_uri(self, configured_path: str) -> str:
         if not configured_path:
@@ -194,6 +195,19 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 MultiDataEaseChartEngine._update_field_names(item, target_id, new_name)
 
     @staticmethod
+    def _update_field_aggregation(obj: Any, target_id: str, aggregation: str) -> None:
+        if aggregation not in MultiDataEaseChartEngine.SUPPORTED_AGGREGATIONS:
+            raise ValueError(f"Unsupported DataEase aggregation: {aggregation}")
+        if isinstance(obj, dict):
+            if str(obj.get("id")) == str(target_id) and "summary" in obj:
+                obj["summary"] = aggregation
+            for item in obj.values():
+                MultiDataEaseChartEngine._update_field_aggregation(item, target_id, aggregation)
+        elif isinstance(obj, list):
+            for item in obj:
+                MultiDataEaseChartEngine._update_field_aggregation(item, target_id, aggregation)
+
+    @staticmethod
     def _replace_template_names(obj: Any, x_names: list[str], y_names: list[str]) -> None:
         if not x_names or not y_names:
             return
@@ -219,6 +233,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         view_id: str,
         layout: dict[str, Any],
         title: str | None = None,
+        y_aggregations: list[str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         template_dir = Path(__file__).resolve().parent.parent / "templates" / f"chart_{chart_type}"
         if not template_dir.exists():
@@ -246,6 +261,8 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             field_id = dataset_ctx.get(f"YAXIS{'' if index == 0 else index + 1}_FIELD_ID")
             if field_id:
                 self._update_field_names(view_info, field_id, name)
+                if y_aggregations and index < len(y_aggregations):
+                    self._update_field_aggregation(view_info, field_id, y_aggregations[index])
         self._replace_template_names(view_info, x_names, y_names)
 
         components = json.loads(payload.get("componentData", "[]"))
@@ -362,10 +379,9 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 view_id=view_id,
                 layout=layout,
                 title=config.get("title"),
+                y_aggregations=config.get("y_aggregations"),
             )
             self._apply_component_theme(component, view, config["type"], theme)
-            if busi_type == "dataV":
-                component.update({"x": 1, "y": 1, "sizeX": 36, "sizeY": 14})
             component["_dragId"] = index
             component_data.append(component)
             canvas_view_info[view_id] = view
