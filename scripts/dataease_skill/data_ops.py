@@ -170,6 +170,41 @@ def _tree(client: DataEaseClient, domain: str) -> list[dict[str, Any]]:
     return result
 
 
+def datasource_tables(client: DataEaseClient, datasource_id: str) -> list[dict[str, Any]]:
+    value = client.data("POST", "/datasource/getTables", {"datasourceId": str(datasource_id)})
+    if not isinstance(value, list):
+        raise DataEaseError("数据源表查询接口未返回数组", code="invalid_response", stage="datasource")
+    return [item for item in value if isinstance(item, dict)]
+
+
+def datasource_table_fields(
+    client: DataEaseClient,
+    datasource_id: str,
+    table_name: str,
+) -> dict[str, Any]:
+    table = next(
+        (
+            item
+            for item in datasource_tables(client, datasource_id)
+            if str(item.get("tableName")) == str(table_name)
+        ),
+        None,
+    )
+    if table is None:
+        raise DataEaseError("数据源中找不到目标表", code="resource_not_found", stage="datasource")
+    request = dict(table)
+    request["name"] = request.get("name") or str(table_name)
+    request["type"] = request.get("type") or "db"
+    if request.get("isCross") is None:
+        request["isCross"] = False
+    if not request.get("info"):
+        request["info"] = json.dumps({"table": str(table_name)}, ensure_ascii=False, separators=(",", ":"))
+    value = client.data("POST", "/datasetData/tableField", request)
+    if not isinstance(value, list):
+        raise DataEaseError("数据表字段查询接口未返回数组", code="invalid_response", stage="dataset")
+    return {"table": request, "fields": [item for item in value if isinstance(item, dict)]}
+
+
 def _extract_id(value: Any) -> str:
     resource_id = value.get("id") if isinstance(value, dict) else value
     if resource_id in (None, ""):

@@ -11,6 +11,13 @@ from .trees import flatten_tree
 DATE_TYPES = {"DATE", "DATETIME", "TIMESTAMP", "TIME", "YEAR"}
 NUMBER_TYPES = {"INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "NUMBER"}
 SENSITIVE_PATTERN = re.compile(r"(身份证|手机|电话|邮箱|住址|银行卡|密码|secret|token|password|phone|mobile|email|address|id_card)", re.I)
+IDENTIFIER_PATTERN = re.compile(
+    r"(^id$|(?<![A-Za-z])id$|_id$|Id$|ID$|编号$|编码$|序号$|流水号$|主键$|(?:^|_)[Cc][Oo][Dd][Ee]$|Code$)",
+)
+AVERAGE_PATTERN = re.compile(
+    r"(%|百分比|比例|比率|占比|率$|均值|平均|评分|得分|指数|单价|客单价|均价|avg|average|rate|ratio|percent)",
+    re.I,
+)
 
 
 class DatasetService:
@@ -85,12 +92,15 @@ def profile_field(field: dict[str, Any]) -> dict[str, Any]:
     lowered = name.lower()
     if db_type in DATE_TYPES or de_type == 1 or any(marker in lowered for marker in ("date", "time", "日期", "时间", "年月", "月份")):
         semantic_role = "date"
-    elif re.search(r"(^id$|编号$|编码$|_id$|code$)", lowered, re.I):
+    elif IDENTIFIER_PATTERN.search(name):
         semantic_role = "identifier"
     elif db_type in NUMBER_TYPES or de_type == 2 or group_type == "q":
         semantic_role = "measure"
     else:
         semantic_role = "dimension"
+    aggregation = None
+    if semantic_role == "measure":
+        aggregation = "avg" if AVERAGE_PATTERN.search(name) else "sum"
     return {
         "id": str(field.get("id") or ""),
         "name": name,
@@ -99,7 +109,7 @@ def profile_field(field: dict[str, Any]) -> dict[str, Any]:
         "database_type": db_type or None,
         "de_type": de_type,
         "semantic_role": semantic_role,
-        "recommended_aggregation": "sum" if semantic_role == "measure" else None,
+        "recommended_aggregation": aggregation,
         "sensitive": bool(SENSITIVE_PATTERN.search(name)),
         "desensitized": bool(field.get("desensitized")),
     }
