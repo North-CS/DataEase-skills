@@ -16,15 +16,23 @@ from .automation_ops import handle_automation_operation
 from .capabilities import CapabilityService
 from .client import DataEaseClient
 from .config import Settings
-from .data_ops import handle_data_mutation
+from .data_ops import datasource_table_fields, datasource_tables, handle_data_mutation
 from .datasets import DatasetService
 from .errors import DataEaseError
 from .intelligence import build_visual_plan
+from .model_ops import handle_model_operation
 from .platform import PlatformService
+from .permission_ops import handle_permission_operation
+from .plugin_ops import handle_plugin_operation
 from .redact import redact_configuration
+from .runtime import runtime_diagnostics
 from .safety import PlanStore
 from .settings_ops import handle_settings_operation
+from .solution_ops import handle_solution_operation
 from .trees import flatten_tree
+from .transfer_ops import handle_transfer_operation
+from .versioning import adapter_for_client
+from .visual_ops import handle_visual_operation
 
 
 def _json(data: Any, code: int = 0) -> int:
@@ -75,11 +83,8 @@ def _plan_context(client: DataEaseClient | None) -> dict[str, Any]:
 
 
 def _visual_resource_detail(client: DataEaseClient, busi_type: str, resource_id: str) -> dict[str, Any]:
-    detail = client.data(
-        "POST",
-        "/dataVisualization/findById",
-        {"id": str(resource_id), "busiFlag": busi_type, "source": "main", "taskId": None},
-    )
+    version, adapter = adapter_for_client(client)
+    detail = adapter.visual_detail(client, str(resource_id), busi_type, version)
     if not isinstance(detail, dict):
         raise DataEaseError(
             f"找不到 {busi_type} 资源: {resource_id}",
@@ -380,9 +385,15 @@ def _filling_create(
     resource = "data-filling-task" if args.action == "task-create" else "data-filling"
     if not args.apply:
         spec = _load_spec(args.spec)
+        normalization_warnings: list[str] = []
         if not str(spec.get("name") or "").strip():
             raise DataEaseError("配置中必须包含 name", code="invalid_spec", stage="input")
         if args.action == "task-create":
+            spec, normalized_aliases = _normalize_filling_task_spec(spec)
+            if normalized_aliases:
+                normalization_warnings.append(
+                    "已将字段别名归一化为 DataEase DTO: " + ", ".join(normalized_aliases)
+                )
             if not spec.get("formId"):
                 raise DataEaseError("任务配置中必须包含 formId", code="invalid_spec", stage="input")
             target = {"name": spec["name"], "formId": str(spec["formId"])}
@@ -400,7 +411,13 @@ def _filling_create(
             rollback={"strategy": "delete-created-resource", "requires_confirmation": True},
             context=_plan_context(client),
         )
-        return _envelope(operation, plan, mode="dry-run", changes=plan["changes"])
+        return _envelope(
+            operation,
+            plan,
+            mode="dry-run",
+            changes=plan["changes"],
+            warnings=normalization_warnings,
+        )
 
     if not args.plan_id:
         raise DataEaseError("执行创建需要 --plan-id", code="plan_required", stage="safety")
@@ -425,6 +442,87 @@ def _filling_create(
         changes=plan.get("changes", []),
         audit_id=audit_id,
     )
+
+
+_FILLING_TASK_WRITABLE_FIELDS = {
+    "formId",
+    "name",
+    "reciFlagList",
+    "msgType",
+    "msgTitle",
+    "msgContent",
+    "uidList",
+    "ridList",
+    "fillType",
+    "fitType",
+    "fitColumn",
+    "rateType",
+    "oneTimeType",
+    "rateVal",
+    "startTime",
+    "endTime",
+    "publishRangeTime",
+    "publishRangeTimeType",
+    "status",
+    "formExtSetting",
+    "formFilterSetting",
+}
+
+_FILLING_TASK_ALIASES = {
+    "assignUsers": "uidList",
+    "reciUsers": "uidList",
+    "rateValue": "rateVal",
+}
+
+
+def _normalize_task_id_list(value: Any, field: str) -> list[int]:
+    values = [item.strip() for item in value.split(",") if item.strip()] if isinstance(value, str) else value
+    if not isinstance(values, list):
+        raise DataEaseError(f"{field} 必须是用户 ID 数组或逗号分隔字符串", code="invalid_spec", stage="input")
+    normalized: list[int] = []
+    for item in values:
+        if isinstance(item, bool):
+            raise DataEaseError(f"{field} 只能包含用户 ID", code="invalid_spec", stage="input")
+        try:
+            normalized.append(int(str(item).strip()))
+        except (TypeError, ValueError) as exc:
+            raise DataEaseError(f"{field} 只能包含数字用户 ID", code="invalid_spec", stage="input") from exc
+    return list(dict.fromkeys(normalized))
+
+
+def _normalize_filling_task_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    normalized = dict(spec)
+    applied_aliases: list[str] = []
+    for alias, target in _FILLING_TASK_ALIASES.items():
+        if alias not in normalized:
+            continue
+        alias_value = normalized.pop(alias)
+        if target == "uidList":
+            alias_value = _normalize_task_id_list(alias_value, alias)
+        if target in normalized:
+            target_value = normalized[target]
+            if target == "uidList":
+                target_value = _normalize_task_id_list(target_value, target)
+            if target_value != alias_value:
+                raise DataEaseError(
+                    f"{alias} 与 {target} 同时存在且内容不一致",
+                    code="conflicting_spec_fields",
+                    stage="input",
+                )
+        normalized[target] = alias_value
+        applied_aliases.append(f"{alias}->{target}")
+    for field in ("uidList", "ridList"):
+        if field in normalized:
+            normalized[field] = _normalize_task_id_list(normalized[field], field)
+    unknown = sorted(set(normalized) - _FILLING_TASK_WRITABLE_FIELDS)
+    if unknown:
+        raise DataEaseError(
+            "任务配置包含 DataEase DTO 不识别的字段",
+            code="unknown_spec_fields",
+            stage="input",
+            details={"fields": unknown, "allowed_fields": sorted(_FILLING_TASK_WRITABLE_FIELDS)},
+        )
+    return normalized, applied_aliases
 
 
 def _write_snapshot(settings: Settings, resource_type: str, resource_id: str, data: Any) -> str:
@@ -838,7 +936,7 @@ def _filling_delete(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="DataEase Skill 2.0 unified CLI")
+    parser = argparse.ArgumentParser(description="DataEase Skill 2.1 unified CLI")
     parser.add_argument("--env-file", default=None)
     parser.add_argument("--base-url", default="")
     parser.add_argument("--org-id", default="")
@@ -849,6 +947,7 @@ def build_parser() -> argparse.ArgumentParser:
     system_actions = system.add_subparsers(dest="action", required=True)
     system_actions.add_parser("doctor")
     system_actions.add_parser("capabilities")
+    system_actions.add_parser("adapter")
 
     inventory = domains.add_parser("inventory")
     inventory_actions = inventory.add_subparsers(dest="action", required=True)
@@ -861,7 +960,7 @@ def build_parser() -> argparse.ArgumentParser:
         command = dataset_actions.add_parser(action)
         command.add_argument("--dataset", required=True)
     plan = dataset_actions.add_parser("plan")
-    plan.add_argument("--dataset", required=True)
+    plan.add_argument("--dataset", required=True, action="append", help="可重复传入以规划跨数据集大屏")
     plan.add_argument("--title", required=True)
     plan.add_argument("--busi-type", choices=("dashboard", "dataV"), default="dashboard")
     for action in ("folder-create",):
@@ -893,10 +992,126 @@ def build_parser() -> argparse.ArgumentParser:
     dataset_delete.add_argument("--plan-id", default="")
     dataset_delete.add_argument("--confirm-token", default="")
 
+    model = domains.add_parser("model")
+    model_actions = model.add_subparsers(dest="action", required=True)
+    model_inspect = model_actions.add_parser("inspect")
+    model_inspect.add_argument("--dataset-id", required=True)
+    model_params = model_actions.add_parser("params")
+    model_params.add_argument("--dataset-id", required=True, action="append")
+    for action in ("validate", "preview", "cron-preview"):
+        command = model_actions.add_parser(action)
+        command.add_argument("--spec", default="-")
+        if action == "preview":
+            command.add_argument("--preview-type", choices=("dataset", "sql"), default="dataset")
+    for action in ("save", "calculated-save"):
+        command = model_actions.add_parser(action)
+        command.add_argument("--spec", default="-")
+        command.add_argument("--apply", action="store_true")
+        command.add_argument("--plan-id", default="")
+        command.add_argument("--confirm-token", default="")
+    model_sync_policy = model_actions.add_parser("sync-policy")
+    model_sync_policy.add_argument("--spec", default="-")
+    model_sync_policy.add_argument("--ack-no-rollback", action="store_true")
+    model_sync_policy.add_argument("--apply", action="store_true")
+    model_sync_policy.add_argument("--plan-id", default="")
+    model_sync_policy.add_argument("--confirm-token", default="")
+    model_permission_list = model_actions.add_parser("permission-list")
+    model_permission_list.add_argument("--kind", choices=("row", "column"), required=True)
+    model_permission_list.add_argument("--dataset-id", required=True)
+    model_permission_list.add_argument("--page", type=int, default=1)
+    model_permission_list.add_argument("--size", type=int, default=100)
+    for action in ("permission-save", "permission-delete"):
+        command = model_actions.add_parser(action)
+        command.add_argument("--kind", choices=("row", "column"), required=True)
+        command.add_argument("--spec", default="-")
+        command.add_argument("--apply", action="store_true")
+        command.add_argument("--plan-id", default="")
+        command.add_argument("--confirm-token", default="")
+
+    permission = domains.add_parser("permission")
+    permission_actions = permission.add_subparsers(dest="action", required=True)
+    permission_inspect = permission_actions.add_parser("inspect")
+    permission_inspect.add_argument("--subject-type", choices=("user", "role"), required=True)
+    permission_inspect.add_argument("--subject-id", required=True)
+    permission_inspect.add_argument("--scope", default="all")
+    permission_apply = permission_actions.add_parser("apply")
+    permission_apply.add_argument("--spec", default="-")
+    permission_apply.add_argument("--apply", action="store_true")
+    permission_apply.add_argument("--plan-id", default="")
+    permission_apply.add_argument("--confirm-token", default="")
+
+    transfer = domains.add_parser("transfer")
+    transfer_actions = transfer.add_subparsers(dest="action", required=True)
+    for action in ("backup", "export"):
+        transfer_backup = transfer_actions.add_parser(action)
+        transfer_backup.add_argument("--resource-type", choices=("visual", "dataset", "datasource"), required=True)
+        transfer_backup.add_argument("--resource-id", required=True)
+        transfer_backup.add_argument("--busi-type", choices=("dashboard", "dataV"), default="dashboard")
+        transfer_backup.add_argument("--output", required=True)
+        transfer_backup.add_argument("--force", action="store_true")
+    transfer_inspect = transfer_actions.add_parser("inspect")
+    transfer_inspect.add_argument("--bundle", required=True)
+    transfer_native = transfer_actions.add_parser("native-export")
+    transfer_native.add_argument("--resource-id", required=True)
+    transfer_native.add_argument("--filename", default="")
+    transfer_native.add_argument("--output", required=True)
+    transfer_native.add_argument("--ack-sensitive-export", action="store_true")
+    transfer_native.add_argument("--force", action="store_true")
+    transfer_native.add_argument("--apply", action="store_true")
+    transfer_native.add_argument("--plan-id", default="")
+    transfer_native.add_argument("--confirm-token", default="")
+    for action in ("import", "restore", "migrate"):
+        command = transfer_actions.add_parser(action)
+        command.add_argument("--spec", default="-")
+        command.add_argument("--target-env-file", default="")
+        command.add_argument("--apply", action="store_true")
+        command.add_argument("--plan-id", default="")
+        command.add_argument("--confirm-token", default="")
+
+    for domain_name in ("plugin", "driver"):
+        extension = domains.add_parser(domain_name)
+        extension_actions = extension.add_subparsers(dest="action", required=True)
+        extension_actions.add_parser("list")
+        package_check = extension_actions.add_parser("package-check")
+        package_check.add_argument("--package", required=True)
+        install = extension_actions.add_parser("install")
+        install.add_argument("--package", required=True)
+        install.add_argument("--apply", action="store_true")
+        install.add_argument("--plan-id", default="")
+        install.add_argument("--confirm-token", default="")
+        for action in ("update", "rollback"):
+            command = extension_actions.add_parser(action)
+            command.add_argument("--plugin-id", required=True)
+            command.add_argument("--package", required=True)
+            command.add_argument("--apply", action="store_true")
+            command.add_argument("--plan-id", default="")
+            command.add_argument("--confirm-token", default="")
+        uninstall = extension_actions.add_parser("uninstall")
+        uninstall.add_argument("--plugin-id", required=True)
+        uninstall.add_argument("--ack-no-rollback", action="store_true")
+        uninstall.add_argument("--apply", action="store_true")
+        uninstall.add_argument("--plan-id", default="")
+        uninstall.add_argument("--confirm-token", default="")
+
+    solution = domains.add_parser("solution")
+    solution_actions = solution.add_subparsers(dest="action", required=True)
+    solution_plan = solution_actions.add_parser("plan")
+    solution_plan.add_argument("--spec", default="-")
+    solution_execute = solution_actions.add_parser("execute")
+    solution_execute.add_argument("--spec", default="-")
+    solution_execute.add_argument("--apply", action="store_true")
+    solution_execute.add_argument("--plan-id", default="")
+    solution_execute.add_argument("--confirm-token", default="")
+
     datasource = domains.add_parser("datasource")
     datasource_actions = datasource.add_subparsers(dest="action", required=True)
     datasource_actions.add_parser("list")
     datasource_actions.add_parser("types")
+    ds_tables = datasource_actions.add_parser("tables")
+    ds_tables.add_argument("--datasource-id", required=True)
+    ds_table_fields = datasource_actions.add_parser("table-fields")
+    ds_table_fields.add_argument("--datasource-id", required=True)
+    ds_table_fields.add_argument("--table-name", required=True)
     ds_validate = datasource_actions.add_parser("validate")
     ds_validate.add_argument("--id", required=True)
     ds_validate_spec = datasource_actions.add_parser("validate-spec")
@@ -947,6 +1162,23 @@ def build_parser() -> argparse.ArgumentParser:
     visual_capture.add_argument("--id", required=True)
     visual_capture.add_argument("--busi-type", choices=("dashboard", "dataV"), default="dashboard")
     visual_capture.add_argument("--pixel", default="1920*1080")
+    visual_inspect = visual_actions.add_parser("inspect")
+    visual_inspect.add_argument("--resource-id", required=True)
+    visual_inspect.add_argument("--busi-type", choices=("dashboard", "dataV"), default="dashboard")
+    visual_patch = visual_actions.add_parser("patch")
+    visual_patch.add_argument("--resource-id", default="")
+    visual_patch.add_argument("--busi-type", choices=("dashboard", "dataV"), default="dashboard")
+    visual_patch.add_argument("--spec", default="-")
+    visual_patch.add_argument("--apply", action="store_true")
+    visual_patch.add_argument("--plan-id", default="")
+    visual_patch.add_argument("--confirm-token", default="")
+    visual_linkage = visual_actions.add_parser("linkage")
+    visual_linkage.add_argument("--resource-id", default="")
+    visual_linkage.add_argument("--busi-type", choices=("dashboard", "dataV"), default="dashboard")
+    visual_linkage.add_argument("--spec", default="-")
+    visual_linkage.add_argument("--apply", action="store_true")
+    visual_linkage.add_argument("--plan-id", default="")
+    visual_linkage.add_argument("--confirm-token", default="")
     visual_create = visual_actions.add_parser("create")
     visual_create.add_argument("--spec", default="-")
     visual_create.add_argument("--apply", action="store_true")
@@ -1026,6 +1258,18 @@ def build_parser() -> argparse.ArgumentParser:
     users.add_argument("--size", type=int, default=100)
     roles = admin_actions.add_parser("roles")
     roles.add_argument("--keyword", default="")
+    role_permissions = admin_actions.add_parser("role-permissions")
+    role_permissions.add_argument("--id", required=True)
+    role_permissions.add_argument(
+        "--scope",
+        choices=("all", "menu", "datasource", "dataset", "panel", "screen", "data_filling", "dashboard", "datav"),
+        default="all",
+    )
+    role_permission_set = admin_actions.add_parser("role-permission-set")
+    role_permission_set.add_argument("--spec", default="-")
+    role_permission_set.add_argument("--apply", action="store_true")
+    role_permission_set.add_argument("--plan-id", default="")
+    role_permission_set.add_argument("--confirm-token", default="")
     admin_actions.add_parser("settings")
     admin_actions.add_parser("authentication")
     admin_actions.add_parser("integrations")
@@ -1207,9 +1451,20 @@ def run(argv: list[str] | None = None) -> int:
             key = f"{args.domain}.{args.action}"
             if key == "system.doctor":
                 capabilities = CapabilityService(client).scan()
-                result = _envelope(key, {"connection": "ok", "diagnostics": client.public_diagnostics(), **capabilities})
+                result = _envelope(
+                    key,
+                    {
+                        "connection": "ok",
+                        "diagnostics": client.public_diagnostics(),
+                        "runtime": runtime_diagnostics(settings.skill_root),
+                        **capabilities,
+                    },
+                )
             elif key == "system.capabilities":
                 result = _envelope(key, CapabilityService(client).scan())
+            elif key == "system.adapter":
+                version, adapter = adapter_for_client(client)
+                result = _envelope(key, adapter.public_info(version))
             elif key == "inventory.scan":
                 result = _envelope(key, platform.inventory())
             elif key == "dataset.list":
@@ -1220,11 +1475,29 @@ def run(argv: list[str] | None = None) -> int:
             elif key == "dataset.profile":
                 result = _envelope(key, datasets.profile(args.dataset))
             elif key == "dataset.plan":
-                result = _envelope(key, build_visual_plan(datasets.profile(args.dataset), args.title, args.busi_type))
+                profiles = [datasets.profile(dataset_name) for dataset_name in args.dataset]
+                result = _envelope(key, build_visual_plan(profiles, args.title, args.busi_type))
+            elif args.domain == "model":
+                result = handle_model_operation(args, settings, client, plans, audit)
+            elif args.domain == "permission":
+                result = handle_permission_operation(args, settings, client, plans, audit)
+            elif args.domain == "transfer":
+                result = handle_transfer_operation(args, settings, client, plans, audit)
+            elif args.domain in {"plugin", "driver"}:
+                result = handle_plugin_operation(args, client, plans, audit)
+            elif args.domain == "solution":
+                result = handle_solution_operation(args, settings, client, plans, audit)
             elif key == "datasource.list":
                 result = _envelope(key, platform.datasources())
             elif key == "datasource.types":
                 result = _envelope(key, client.data("GET", "/datasource/types"))
+            elif key == "datasource.tables":
+                result = _envelope(key, datasource_tables(client, args.datasource_id))
+            elif key == "datasource.table-fields":
+                result = _envelope(
+                    key,
+                    datasource_table_fields(client, args.datasource_id, args.table_name),
+                )
             elif key == "datasource.validate":
                 result = _envelope(key, client.data("GET", f"/datasource/validate/{args.id}"))
             elif args.domain in {"datasource", "dataset"} and args.action in {
@@ -1243,6 +1516,8 @@ def run(argv: list[str] | None = None) -> int:
             elif key == "visual.capture":
                 capture = _capture(settings, args.id, args.busi_type, args.pixel)
                 result = _envelope(key, capture, artifacts=[capture.get("saved_file")] if capture.get("saved_file") else [])
+            elif key in {"visual.inspect", "visual.patch", "visual.linkage"}:
+                result = handle_visual_operation(args, settings, client, plans, audit)
             elif key == "visual.create":
                 result = _visual_create(args, settings, client, plans, audit)
             elif key == "visual.publish":
