@@ -8,7 +8,11 @@ from pathlib import Path
 
 from scripts.dataease_skill.audit import AuditLog
 from scripts.dataease_skill.config import Settings
-from scripts.dataease_skill.data_ops import handle_data_mutation
+from scripts.dataease_skill.data_ops import (
+    datasource_table_fields,
+    datasource_tables,
+    handle_data_mutation,
+)
 from scripts.dataease_skill.errors import DataEaseError
 from scripts.dataease_skill.safety import PlanStore
 
@@ -16,8 +20,10 @@ from scripts.dataease_skill.safety import PlanStore
 class FakeDataClient:
     def __init__(self) -> None:
         self.settings = Settings(base_url="http://example", x_de_token="token", org_id="1")
+        self.requests = []
 
     def data(self, method: str, path: str, payload=None):
+        self.requests.append((method, path, payload))
         if path == "/license/version":
             return "2.10.25"
         if path == "/datasource/hidePw/10":
@@ -46,6 +52,10 @@ class FakeDataClient:
             return [{"id": "20", "pid": "0", "name": "Codex Dataset", "nodeType": "dataset"}]
         if path == "/datasetTree/perDelete/20":
             return False
+        if path == "/datasource/getTables":
+            return [{"datasourceId": "10", "tableName": "sales", "name": "", "type": "db", "info": None}]
+        if path == "/datasetData/tableField":
+            return [{"originName": "amount", "name": "amount", "type": "DECIMAL", "deType": 3}]
         raise AssertionError(f"unexpected request: {method} {path}")
 
 
@@ -159,6 +169,16 @@ class DataMutationTests(unittest.TestCase):
             )
             result = handle_data_mutation(args, settings, client, plans, audit)
             self.assertEqual(result["result"]["risk"], "L2")
+
+    def test_datasource_table_discovery_builds_version_dto(self) -> None:
+        client = FakeDataClient()
+        self.assertEqual(datasource_tables(client, "10")[0]["tableName"], "sales")
+        value = datasource_table_fields(client, "10", "sales")
+        self.assertEqual(value["fields"][0]["originName"], "amount")
+        request = next(payload for _, path, payload in client.requests if path == "/datasetData/tableField")
+        self.assertEqual(request["name"], "sales")
+        self.assertFalse(request["isCross"])
+        self.assertEqual(json.loads(request["info"]), {"table": "sales"})
 
 
 if __name__ == "__main__":

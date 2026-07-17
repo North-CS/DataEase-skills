@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from scripts.dataease_skill.config import Settings
 from scripts.dataease_skill.client import DataEaseClient, _payload_secrets, _sanitize_value
@@ -40,6 +40,7 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(settings.timeout, 30.0)
             self.assertEqual(settings.api_prefix, "/de2api")
             self.assertEqual(settings.request_mode, "auto")
+            self.assertFalse(settings.allow_unverified_version)
 
     def test_env_precedence_and_public_redaction(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -179,6 +180,20 @@ class OrganizationContextTests(unittest.TestCase):
         ) as switch:
             self.assertTrue(client.ensure_organization("2"))
             switch.assert_called_once_with("2")
+        client.close()
+
+
+class MultipartClientTests(unittest.TestCase):
+    def test_multipart_request_removes_json_content_type(self):
+        client = DataEaseClient(Settings(base_url="http://example", x_de_token="token"))
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"code": 0, "data": None}
+        with patch.object(client.session, "request", return_value=response) as request:
+            client.request("POST", "/plugin/install", files={"file": ("plugin.jar", b"bytes")})
+        kwargs = request.call_args.kwargs
+        self.assertNotIn("Content-Type", kwargs["headers"])
+        self.assertIn("file", kwargs["files"])
+        self.assertIsNone(kwargs["json"])
         client.close()
 
 class CryptoTests(unittest.TestCase):

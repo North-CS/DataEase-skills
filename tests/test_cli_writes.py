@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -114,6 +115,61 @@ class PlannedWriteTests(unittest.TestCase):
             with self.assertRaises(DataEaseError) as raised:
                 _filling_create(args, None, PlanStore(Path(directory)), AuditLog(Path(directory)))
             self.assertEqual(raised.exception.code, "invalid_spec")
+
+    def test_filling_task_normalizes_documented_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            spec_path = root / "task.json"
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "name": "月度收集",
+                        "formId": "100",
+                        "assignUsers": ["11", 12],
+                        "rateType": 1,
+                        "rateValue": "2026-08-01 09:00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client = type(
+                "FakeClient",
+                (),
+                {
+                    "settings": Settings(base_url="http://example", x_de_token="token"),
+                    "data": staticmethod(lambda method, path, payload=None: "2.10.25" if path == "/license/version" else None),
+                },
+            )()
+            plans = PlanStore(root)
+            result = _filling_create(
+                argparse.Namespace(action="task-create", spec=str(spec_path), apply=False, plan_id="", confirm_token=""),
+                client,
+                plans,
+                AuditLog(root),
+            )
+            stored = plans.load(result["result"]["plan_id"])["spec"]
+            self.assertEqual(stored["uidList"], [11, 12])
+            self.assertEqual(stored["rateVal"], "2026-08-01 09:00:00")
+            self.assertNotIn("assignUsers", stored)
+            self.assertNotIn("rateValue", stored)
+            self.assertTrue(result["warnings"])
+
+    def test_filling_task_rejects_unknown_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            spec_path = root / "task.json"
+            spec_path.write_text(
+                '{"name":"月度收集","formId":"100","silentTypo":true}',
+                encoding="utf-8",
+            )
+            with self.assertRaises(DataEaseError) as raised:
+                _filling_create(
+                    argparse.Namespace(action="task-create", spec=str(spec_path), apply=False, plan_id="", confirm_token=""),
+                    None,
+                    PlanStore(root),
+                    AuditLog(root),
+                )
+            self.assertEqual(raised.exception.code, "unknown_spec_fields")
 
     def test_row_write_plan_stores_digest_not_row_values(self) -> None:
         class FakeClient:

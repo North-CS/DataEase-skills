@@ -20,10 +20,40 @@ class FakeClient:
         raise AssertionError((method, path, payload))
 
 
+class MultiDatasetClient:
+    def data(self, method, path, payload=None):
+        if path == "/datasetTree/tree":
+            return [
+                {"name": "销售", "id": "100", "leaf": True},
+                {"name": "目标", "id": "200", "leaf": True},
+            ]
+        if path == "/datasetTree/details/100":
+            return {
+                "allFields": [
+                    {"id": "1", "name": "月份", "type": "DATE", "deType": 1},
+                    {"id": "2", "name": "区域", "type": "VARCHAR", "deType": 0},
+                    {"id": "3", "name": "销售额", "type": "DECIMAL", "deType": 2},
+                ]
+            }
+        if path == "/datasetTree/details/200":
+            return {
+                "allFields": [
+                    {"id": "4", "name": "月份", "type": "DATE", "deType": 1},
+                    {"id": "5", "name": "区域", "type": "VARCHAR", "deType": 0},
+                    {"id": "6", "name": "目标额", "type": "DECIMAL", "deType": 2},
+                ]
+            }
+        raise AssertionError((method, path, payload))
+
+
 class FieldProfileTests(unittest.TestCase):
     def test_roles_and_sensitive_detection(self):
         self.assertEqual(profile_field({"name": "订单日期", "type": "DATE"})["semantic_role"], "date")
         self.assertEqual(profile_field({"name": "销售额", "type": "DECIMAL"})["semantic_role"], "measure")
+        self.assertEqual(profile_field({"name": "日志流水ID", "type": "BIGINT"})["semantic_role"], "identifier")
+        self.assertEqual(profile_field({"name": "orderId", "type": "BIGINT"})["semantic_role"], "identifier")
+        self.assertEqual(profile_field({"name": "平均利润率(%)", "type": "DECIMAL"})["recommended_aggregation"], "avg")
+        self.assertEqual(profile_field({"name": "综合评分", "type": "DECIMAL"})["recommended_aggregation"], "avg")
         self.assertTrue(profile_field({"name": "客户手机号", "type": "VARCHAR"})["sensitive"])
 
     def test_profile_and_visual_plan(self):
@@ -37,6 +67,30 @@ class FieldProfileTests(unittest.TestCase):
         self.assertEqual(table["x_axis"], ["日期", "区域"])
         self.assertEqual(table["y_axis"], ["销售额"])
         self.assertTrue(plan["recommendations"])
+
+    def test_multi_dataset_plan_uses_every_dataset_and_suggests_relationships(self):
+        service = DatasetService(MultiDatasetClient())
+        plan = build_visual_plan([service.profile("销售"), service.profile("目标")], "经营驾驶舱", "dataV")
+        self.assertEqual(plan["schema_version"], 2)
+        self.assertEqual({chart["dataset_name"] for chart in plan["charts"]}, {"100", "200"})
+        self.assertEqual({item["dataset_id"] for item in plan["kpi_candidates"]}, {"100", "200"})
+        relationship_fields = {item["field"] for item in plan["dataset_relationships"]}
+        self.assertIn("月份", relationship_fields)
+        self.assertIn("区域", relationship_fields)
+        self.assertTrue(plan["interactions"]["cross_dataset_linkage_requires_confirmation"])
+
+    def test_identifier_only_dataset_uses_distinct_count_instead_of_sum(self):
+        profile = {
+            "dataset": {"id": "300", "name": "访问日志"},
+            "dimensions": [{"name": "渠道", "semantic_role": "dimension"}],
+            "dates": [{"name": "访问时间", "semantic_role": "date"}],
+            "identifiers": [{"name": "日志流水ID", "semantic_role": "identifier"}],
+            "measures": [],
+            "sensitive_fields": [],
+        }
+        plan = build_visual_plan(profile, "访问分析")
+        self.assertEqual(plan["kpi_candidates"][0]["aggregation"], "count_distinct")
+        self.assertTrue(all(chart["y_aggregations"] == ["count_distinct"] for chart in plan["charts"]))
 
 
 if __name__ == "__main__":

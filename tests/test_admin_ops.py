@@ -32,6 +32,11 @@ class FakeAdminClient:
             "mfaEnable": False,
             "variables": [],
         }
+        self.last_user_create = None
+        self.permissions = {
+            "menu": [{"id": 7, "weight": 1, "ext": 0}],
+            "dataset": [{"id": 100, "weight": 1, "ext": 0}],
+        }
 
     def data(self, method: str, path: str, payload=None):
         if path == "/license/version":
@@ -49,6 +54,38 @@ class FakeAdminClient:
         if path == "/role/edit":
             self.role.update(payload)
             return None
+        if path == "/auth/menuPermission":
+            permissions = [
+                {**item, "columnPermissions": item.get("columnPermissions"), "rowPermissions": item.get("rowPermissions")}
+                for item in self.permissions["menu"]
+            ]
+            return {"root": False, "readonly": False, "permissions": permissions, "permissionOrigins": []}
+        if path == "/auth/busiPermission":
+            scope = str(payload["flag"]).lower()
+            permissions = [
+                {**item, "columnPermissions": item.get("columnPermissions"), "rowPermissions": item.get("rowPermissions")}
+                for item in self.permissions.get(scope, [])
+            ]
+            return {"root": False, "readonly": False, "permissions": permissions, "permissionOrigins": []}
+        if path == "/auth/saveMenuPer":
+            current = {item["id"]: item for item in self.permissions["menu"]}
+            for item in payload["permissions"]:
+                if item["weight"] > 0:
+                    current[item["id"]] = dict(item)
+                else:
+                    current.pop(item["id"], None)
+            self.permissions["menu"] = sorted(current.values(), key=lambda item: item["id"])
+            return None
+        if path == "/auth/saveBusiPer":
+            scope = str(payload["flag"]).lower()
+            current = {item["id"]: item for item in self.permissions.get(scope, [])}
+            for item in payload["permissions"]:
+                if item["weight"] > 0:
+                    current[item["id"]] = dict(item)
+                else:
+                    current.pop(item["id"], None)
+            self.permissions[scope] = sorted(current.values(), key=lambda item: item["id"])
+            return None
         if path == "/user/edit":
             self.user.update(payload)
             return None
@@ -56,6 +93,7 @@ class FakeAdminClient:
             self.user["enable"] = bool(payload["enable"])
             return None
         if path == "/user/create":
+            self.last_user_create = dict(payload)
             return "20"
         raise AssertionError(f"unexpected request: {method} {path}")
 
@@ -98,6 +136,27 @@ class AdminMutationTests(unittest.TestCase):
             self.assertNotIn("codex@example.invalid", plan_text)
             self.assertNotIn("13800000000", plan_text)
             self.assertEqual(result["result"]["risk"], "L1")
+
+    def test_user_create_supplies_required_empty_variables(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            spec_path = root / "user.json"
+            spec_path.write_text(json.dumps({
+                "name": "Codex User", "account": "codex_user",
+                "email": "codex@example.invalid", "roleIds": [10], "enable": True,
+            }), encoding="utf-8")
+            settings = Settings(base_url="http://example", x_de_token="token", output_dir=root)
+            client = FakeAdminClient()
+            plans, audit = PlanStore(root), AuditLog(root)
+            args = argparse.Namespace(action="user-create", apply=False, spec=str(spec_path),
+                                      plan_id="", confirm_token="")
+            planned = handle_admin_mutation(args, settings, client, plans, audit)
+            args.apply = True
+            args.plan_id = planned["result"]["plan_id"]
+            applied = handle_admin_mutation(args, settings, client, plans, audit)
+            self.assertEqual(applied["result"]["id"], "20")
+            self.assertEqual(client.last_user_create["variables"], [])
+            self.assertFalse(client.last_user_create["mfaEnable"])
 
     def test_user_create_with_administrator_role_is_l3(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -320,6 +379,142 @@ class AdminMutationTests(unittest.TestCase):
                     AuditLog(root),
                 )
             self.assertEqual(raised.exception.code, "rollback_ack_required")
+
+    def test_role_permissions_read_uses_role_target_type(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = handle_admin_mutation(
+                argparse.Namespace(action="role-permissions", id="10", scope="dataset"),
+                Settings(base_url="http://example", x_de_token="token", output_dir=Path(directory)),
+                FakeAdminClient(),
+                PlanStore(Path(directory)),
+                AuditLog(Path(directory)),
+            )
+            permissions = result["result"]["scopes"]["dataset"]["permissions"]
+            self.assertEqual(permissions[0]["id"], 100)
+
+    def test_role_permission_set_is_l3_and_verifies_readback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            spec_path = root / "role-permissions.json"
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "roleId": 10,
+                        "scope": "dataset",
+                        "permissions": [
+                            {"id": 100, "weight": 7, "ext": 0},
+                            {"id": 101, "weight": 1, "ext": 0},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            settings = Settings(base_url="http://example", x_de_token="token", output_dir=root)
+            client = FakeAdminClient()
+            plans = PlanStore(root)
+            dry_run = handle_admin_mutation(
+                argparse.Namespace(
+                    action="role-permission-set",
+                    spec=str(spec_path),
+                    apply=False,
+                    plan_id="",
+                    confirm_token="",
+                ),
+                settings,
+                client,
+                plans,
+                AuditLog(root),
+            )
+            self.assertEqual(dry_run["result"]["risk"], "L3")
+            self.assertTrue(dry_run["result"]["confirmation_token"])
+            applied = handle_admin_mutation(
+                argparse.Namespace(
+                    action="role-permission-set",
+                    spec=str(spec_path),
+                    apply=True,
+                    plan_id=dry_run["result"]["plan_id"],
+                    confirm_token=dry_run["result"]["confirmation_token"],
+                ),
+                settings,
+                client,
+                plans,
+                AuditLog(root),
+            )
+            self.assertEqual(applied["result"]["after"]["permission_count"], 2)
+            self.assertEqual(client.permissions["dataset"][0]["weight"], 7)
+
+    def test_role_permission_set_revokes_permissions_omitted_from_target_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            spec_path = root / "role-permissions.json"
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "roleId": 10,
+                        "scope": "dataset",
+                        "permissions": [{"id": 100, "weight": 3, "ext": 0}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            settings = Settings(base_url="http://example", x_de_token="token", output_dir=root)
+            client = FakeAdminClient()
+            client.permissions["dataset"].append({"id": 101, "weight": 2, "ext": 0})
+            plans = PlanStore(root)
+            dry_run = handle_admin_mutation(
+                argparse.Namespace(
+                    action="role-permission-set",
+                    spec=str(spec_path),
+                    apply=False,
+                    plan_id="",
+                    confirm_token="",
+                ),
+                settings,
+                client,
+                plans,
+                AuditLog(root),
+            )
+            applied = handle_admin_mutation(
+                argparse.Namespace(
+                    action="role-permission-set",
+                    spec=str(spec_path),
+                    apply=True,
+                    plan_id=dry_run["result"]["plan_id"],
+                    confirm_token=dry_run["result"]["confirmation_token"],
+                ),
+                settings,
+                client,
+                plans,
+                AuditLog(root),
+            )
+            self.assertEqual(applied["result"]["after"]["permission_count"], 1)
+            self.assertEqual(client.permissions["dataset"], [{"id": 100, "weight": 3, "ext": 0}])
+
+    def test_role_permission_set_rejects_row_column_changes_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            spec_path = root / "role-permissions.json"
+            spec_path.write_text(
+                json.dumps({"roleId": 10, "scope": "dataset", "permissions": []}),
+                encoding="utf-8",
+            )
+            client = FakeAdminClient()
+            client.permissions["dataset"][0]["rowPermissions"] = {"authTargetType": "role"}
+            with self.assertRaises(DataEaseError) as raised:
+                handle_admin_mutation(
+                    argparse.Namespace(
+                        action="role-permission-set",
+                        spec=str(spec_path),
+                        apply=False,
+                        plan_id="",
+                        confirm_token="",
+                    ),
+                    Settings(base_url="http://example", x_de_token="token", output_dir=root),
+                    client,
+                    PlanStore(root),
+                    AuditLog(root),
+                )
+            self.assertEqual(raised.exception.code, "capability_unavailable")
 
 
 if __name__ == "__main__":
