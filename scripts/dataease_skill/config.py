@@ -54,6 +54,7 @@ class Settings:
     timeout: float = 30.0
     verify_ssl: bool = True
     ca_bundle: str = ""
+    allow_unverified_version: bool = False
     output_dir: Path = Path("output")
     skill_root: Path = Path(".")
 
@@ -88,6 +89,9 @@ class Settings:
             timeout=float(value_or_default("DATAEASE_TIMEOUT", "30")),
             verify_ssl=_parse_bool(value_or_default("DATAEASE_VERIFY_SSL", "true"), True),
             ca_bundle=value("DATAEASE_CA_BUNDLE"),
+            allow_unverified_version=_parse_bool(
+                value_or_default("DATAEASE_ALLOW_UNVERIFIED_VERSION", "false"), False
+            ),
             output_dir=output_dir.resolve(),
             skill_root=skill_root,
         )
@@ -159,5 +163,6 @@ class Settings:
             "timeout": self.timeout,
             "verify_ssl": bool(self.verify_ssl or self.ca_bundle),
             "ca_bundle": bool(self.ca_bundle),
+            "allow_unverified_version": self.allow_unverified_version,
             "output_dir": str(self.output_dir),
         }

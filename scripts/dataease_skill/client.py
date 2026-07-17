@@ -167,19 +167,27 @@ class DataEaseClient:
         authenticated: bool = True,
         timeout: float | None = None,
         raw: bool = False,
+        files: dict[str, Any] | None = None,
+        form: dict[str, Any] | None = None,
     ) -> Any:
         headers = self._auth_headers() if authenticated else {
             "Accept": "application/json;charset=UTF-8",
             "Content-Type": "application/json",
         }
-        active_secrets = tuple(secret for secret in (*self.settings.secrets, *_payload_secrets(payload)) if secret)
+        if files:
+            headers.pop("Content-Type", None)
+        active_secrets = tuple(
+            secret for secret in (*self.settings.secrets, *_payload_secrets(payload), *_payload_secrets(form)) if secret
+        )
         url = self._url(path)
         try:
             response = self.session.request(
                 method.upper(),
                 url,
                 headers=headers,
-                json=payload,
+                json=None if files else payload,
+                data=form if files else None,
+                files=files,
                 params=params,
                 timeout=timeout or self.settings.timeout,
                 verify=self.settings.verify,

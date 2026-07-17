@@ -5,6 +5,7 @@ from typing import Any
 
 from .client import DataEaseClient
 from .errors import DataEaseError
+from .versioning import select_adapter
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,8 @@ PROBES = (
     Probe("organizations", "POST", "/org/page/tree", {"keyword": "", "desc": True}, "xpack"),
     Probe("users", "POST", "/user/pager/1/1", {}, "xpack"),
     Probe("roles", "POST", "/role/query", {"keyword": ""}, "xpack"),
+    Probe("permission_matrix", "GET", "/auth/menuResource", edition="xpack"),
+    Probe("plugins_and_drivers", "GET", "/plugin/query", edition="xpack"),
     Probe("system_settings", "GET", "/sysParameter/basic/query"),
     Probe("authentication_settings", "GET", "/perSetting/basic/query", edition="xpack"),
     Probe("mfa_settings", "GET", "/perSetting/mfa/query", edition="xpack"),
@@ -64,8 +67,22 @@ class CapabilityService:
                     "reason": "permission_denied" if status in {401, 403} else "not_available" if status == 404 else exc.code,
                     "status": status,
                 }
+        adapter_info = None
+        derived: dict[str, Any] = {}
+        if version is not None:
+            try:
+                parsed, adapter = select_adapter(version)
+                adapter_info = adapter.public_info(parsed)
+                derived = {
+                    feature: {"available": True, "edition": "version-adapter", "adapter": adapter.name}
+                    for feature in adapter.features
+                }
+            except DataEaseError as exc:
+                adapter_info = {"available": False, "reason": exc.code}
+        capabilities.update({key: value for key, value in derived.items() if key not in capabilities})
         return {
             "version": version,
+            "version_adapter": adapter_info,
             "capabilities": capabilities,
             "fallback_order": ["official-api", "versioned-internal-api", "browser-automation", "manual-guidance"],
         }

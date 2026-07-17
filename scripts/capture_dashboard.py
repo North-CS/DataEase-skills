@@ -696,8 +696,8 @@ def add_common_auth_args(parser):
 
 
 def add_runtime_args(parser):
-    parser.add_argument("--org-id", default="")
-    parser.add_argument("--x-de-token", default="")
+    parser.add_argument("--org-id", default=os.getenv("DATAEASE_ORG_ID", ""))
+    parser.add_argument("--x-de-token", default=os.getenv("DATAEASE_X_DE_TOKEN", ""))
 
 
 def add_resource_tree_args(parser):
@@ -714,9 +714,14 @@ def build_parser():
     add_common_auth_args(list_orgs)
     list_orgs.add_argument("--org-keyword", default="")
 
-    switch_org = subparsers.add_parser("switch-org", help="切换组织并返回 x-de-token")
+    switch_org = subparsers.add_parser("switch-org", help="验证组织切换；后续命令请继续传 --org-id")
     add_common_auth_args(switch_org)
     switch_org.add_argument("--org-id", required=True)
+    switch_org.add_argument(
+        "--show-token",
+        action="store_true",
+        help="显式输出敏感 x-de-token；默认只确认 Token 已生成",
+    )
 
     list_resources = subparsers.add_parser("list-resources", help="查询组织下的仪表板或大屏列表")
     add_common_auth_args(list_resources)
@@ -889,16 +894,21 @@ def command_switch_org(args, auth_context):
         x_de_token = switch_data.get("token") if isinstance(switch_data, dict) else None
         if not x_de_token:
             raise ValueError("切换组织接口未返回 data.token")
-        print_json({
+        result = {
             "ok": True,
             "stage": "switch_org",
             "org_id": str(args.org_id),
-            "x_de_token": x_de_token,
+            "token_available": True,
             "token_exp": switch_data.get("exp"),
             "token_source": "switched_org",
             "auth_mode": auth_mode,
             "request_mode": request_mode,
-        }, 0)
+            "next_step": "后续命令继续传 --org-id，或设置 DATAEASE_ORG_ID；进程之间不会共享内存 Token。",
+        }
+        if getattr(args, "show_token", False):
+            result["x_de_token"] = x_de_token
+            result["warnings"] = ["x-de-token 属于敏感凭据，请勿写入日志、聊天或版本库。"]
+        print_json(result, 0)
     except Exception as err:
         print_json(error_to_dict("switch_org", err, {"org_id": args.org_id}), 1)
 

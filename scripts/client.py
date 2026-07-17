@@ -1,4 +1,4 @@
-"""Backward-compatible client wrapper over the DataEase Skill 2.0 core."""
+"""Backward-compatible client wrapper over the DataEase Skill 2.1 core."""
 
 from __future__ import annotations
 
