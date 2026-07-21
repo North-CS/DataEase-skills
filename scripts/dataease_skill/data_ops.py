@@ -575,8 +575,294 @@ def handle_data_mutation(
     if domain == "datasource" and args.action == "sync-logs":
         result = client.data("POST", f"/datasource/listSyncRecord/{args.id}/{args.page}/{args.size}", {})
         return _envelope("datasource.sync-logs", result)
+    if domain == "dataset" and args.action == "quick-create":
+        return _dataset_quick_create(args, settings, client, plans, audit)
+    if domain == "datasource" and args.action == "auto-discover":
+        return _datasource_auto_discover(args, settings, client, plans, audit)
     raise DataEaseError(
         f"未实现数据操作: {domain}.{args.action}",
         code="unsupported_operation",
         stage="routing",
     )
+
+
+def _dataset_quick_create(
+    args: Any,
+    settings: Settings,
+    client: DataEaseClient,
+    plans: PlanStore,
+    audit: AuditLog,
+) -> dict[str, Any]:
+    """Auto-assemble dataset DTO from a datasource table and create it.
+
+    Known limitation: DataEase 2.10.25 REST API does not support creating
+    direct-connect (mode=0) MySQL datasets for tables that haven't been
+    initialized via the Web UI first.  This command will detect that case
+    and surface it clearly instead of failing with a cryptic error.
+    """
+    operation = "dataset.quick-create"
+    datasource_id = str(args.datasource_id)
+    table_name = str(args.table_name)
+    dataset_name = str(args.name or table_name)
+    pid = str(args.pid or "0")
+
+    # 1. Check for existing datasets for this table (which have table IDs)
+    existing_datasets: list[dict[str, Any]] = []
+    try:
+        tree = client.data("POST", "/datasetTree/tree", {"busiFlag": "dataset"})
+        from .trees import flatten_tree
+        all_ds = flatten_tree(tree if isinstance(tree, list) else [], leaves_only=True)
+        for ds in all_ds:
+            try:
+                detail = client.data("POST", f"/datasetTree/details/{ds.get('id')}")
+                info_list = json.loads(detail.get("info", "[]")) if isinstance(detail, dict) else []
+                for entry in info_list:
+                    if isinstance(entry, dict) and entry.get("currentDs", {}).get("tableName") == table_name:
+                        if entry["currentDs"].get("datasourceId") == datasource_id:
+                            existing_datasets.append(detail)
+                            break
+            except (DataEaseError, json.JSONDecodeError):
+                pass
+    except DataEaseError:
+        pass
+
+    # 2. Fetch table fields (validates connection and table existence)
+    table_info = datasource_table_fields(client, datasource_id, table_name)
+    table = table_info["table"]
+    fields = table_info["fields"]
+    if not fields:
+        raise DataEaseError(f"表 {table_name} 没有可用字段", code="empty_table", stage="dataset")
+
+    # 3. Build dataset DTO
+    current_ds = dict(table)
+    current_ds.pop("id", None)
+    current_ds.pop("datasetGroupId", None)
+    current_ds["fields"] = None
+    current_ds["lastUpdateTime"] = 0
+    current_ds["status"] = None
+
+    # Build fields with all required slots (matching DataEase DTO)
+    ds_fields = []
+    for idx, field in enumerate(fields):
+        # Deterministic dataeaseName via MD5 — Python hash() is randomized per process
+        seed = f"{table_name}:{idx}:{field.get('name','')}"
+        de_name = "f_" + hashlib.md5(seed.encode()).hexdigest()[:16]
+        ds_fields.append({
+            "datasourceId": str(datasource_id),
+            "datasetTableId": None,
+            "datasetGroupId": None,
+            "chartId": None,
+            "originName": field.get("originName") or field.get("name", ""),
+            "name": field.get("name") or "",
+            "dbFieldName": None,
+            "description": field.get("description") or field.get("name", ""),
+            "dataeaseName": de_name,
+            "groupType": field.get("groupType", ""),
+            "type": field.get("type", ""),
+            "precision": field.get("precision"),
+            "scale": field.get("scale"),
+            "deType": field.get("deType", 0),
+            "deExtractType": field.get("deExtractType", 0),
+            "extField": 0,
+            "checked": True,
+            "columnIndex": idx,
+            "lastSyncTime": None,
+            "dateFormat": field.get("dateFormat"),
+            "dateFormatType": field.get("dateFormatType"),
+            "fieldShortName": de_name,
+            "groupList": None,
+            "otherGroup": None,
+            "desensitized": None,
+            "orderChecked": None,
+            "params": None,
+        })
+
+    info = json.dumps([{
+        "currentDs": current_ds,
+        "currentDsField": None,
+        "currentDsFields": ds_fields,
+    }], ensure_ascii=False, separators=(",", ":"))
+
+    spec = {
+        "name": dataset_name,
+        "pid": pid,
+        "nodeType": "dataset",
+        "mode": 0,
+        "info": info,
+    }
+
+    ds_type = str(table.get("type", "db")).lower()
+
+    # 4. Dry-run
+    if not args.apply:
+        warnings = []
+        if ds_type in ("db", "mysql") and not existing_datasets:
+            warnings.append(
+                f"数据源表 {table_name} 尚未通过 DataEase Web UI 初始化（getTables 返回 id=null）。"
+                f"创建数据集需要在 Web UI 中先为该表创建首个数据集，后续 API 创建才可用。"
+            )
+        if existing_datasets:
+            warnings.append(
+                f"已找到 {len(existing_datasets)} 个使用该表的已有数据集，"
+                f"可从中复用表结构信息。"
+            )
+        plan = plans.create(
+            operation,
+            target={"table": table_name, "datasource_id": datasource_id, "dataset_name": dataset_name},
+            changes=[{"action": "create", "resource": "dataset", "table": table_name, "fields": len(fields), "ds_type": ds_type}],
+            risk="L1",
+            spec={"payload_sha256": _digest(spec)},
+            rollback={"strategy": "delete-created-resource", "requires_confirmation": True},
+            context=_plan_context(client),
+        )
+        return _envelope(operation, plan, mode="dry-run", changes=plan["changes"], warnings=warnings)
+
+    # 5. Apply
+    if not args.plan_id:
+        raise DataEaseError("执行创建需要 --plan-id", code="plan_required", stage="safety")
+    plan = plans.load(args.plan_id, args.confirm_token, expected_context=_plan_context(client))
+    if plan.get("operation") != operation or _digest(spec) != plan.get("spec", {}).get("payload_sha256"):
+        raise DataEaseError("创建参数与 dry-run 不一致", code="spec_changed", stage="safety")
+
+    try:
+        response = client.data("POST", "/datasetTree/create", spec)
+    except DataEaseError as exc:
+        if "字段不能为空" in str(exc) and ds_type in ("db", "mysql"):
+            raise DataEaseError(
+                f"API 创建直连数据集失败（DataEase 2.10.25 已知限制）：表 \"{table_name}\" 的数据源表 ID 为空。"
+                f"请先通过 DataEase Web UI（数据准备 → 数据集 → 新建）为该表创建首个数据集，之后 API 创建即可用。",
+                code="datasource_table_not_initialized",
+                stage="dataset",
+                details={"datasource_id": datasource_id, "table": table_name, "workaround": "使用 Web UI 创建首个数据集后重试"},
+            ) from exc
+        raise
+
+    resource_id = _extract_id(response)
+    after = _dataset_public(_dataset_detail(client, resource_id))
+    if str(after.get("name")) != str(spec.get("name")):
+        raise DataEaseError("创建后名称回读不一致", code="verification_failed", stage="verification")
+    audit_id = audit.write(operation, status="success", risk="L1", target=plan.get("target"), changes=plan.get("changes"), result=after)
+    plans.mark_applied(args.plan_id, audit_id)
+    return _envelope(operation, after, mode="apply", adapter="official-api", audit_id=audit_id)
+
+
+def _datasource_auto_discover(
+    args: Any,
+    settings: Settings,
+    client: DataEaseClient,
+    plans: PlanStore,
+    audit: AuditLog,
+) -> dict[str, Any]:
+    """Scan a datasource and create datasets for all (or selected) tables."""
+    operation = "datasource.auto-discover"
+    datasource_id = str(args.id)
+
+    tables = datasource_tables(client, datasource_id)
+    if not tables:
+        raise DataEaseError("数据源中没有可发现的表", code="empty_datasource", stage="datasource")
+
+    # Filter by table pattern if provided
+    pattern = getattr(args, "table_pattern", None)
+    if pattern:
+        import re
+        filt = re.compile(pattern, re.I)
+        tables = [t for t in tables if filt.search(str(t.get("tableName", "")))]
+        if not tables:
+            raise DataEaseError(f"没有匹配模式 '{pattern}' 的表", code="no_matching_tables", stage="datasource")
+
+    prefix = getattr(args, "prefix", "") or ""
+
+    # Dry-run: list what would be created
+    if not args.apply:
+        plan = plans.create(
+            operation,
+            target={"datasource_id": datasource_id, "table_count": len(tables)},
+            changes=[{
+                "action": "batch-create",
+                "resource": "dataset",
+                "tables": [
+                    {"table": str(t.get("tableName", "")), "name": f"{prefix}{str(t.get('tableName', ''))}"}
+                    for t in tables
+                ],
+                "count": len(tables),
+            }],
+            risk="L2",
+            spec={"datasource_id": datasource_id, "table_pattern": pattern, "prefix": prefix, "table_count": len(tables)},
+            rollback={"strategy": "delete-created-datasets", "requires_confirmation": True},
+            context=_plan_context(client),
+        )
+        return _envelope(operation, plan, mode="dry-run", changes=plan["changes"])
+
+    # Apply: create datasets one by one
+    if not args.plan_id:
+        raise DataEaseError("执行批量创建需要 --plan-id", code="plan_required", stage="safety")
+    plan = plans.load(args.plan_id, args.confirm_token, expected_context=_plan_context(client))
+    if plan.get("operation") != operation:
+        raise DataEaseError("plan-id 不属于 datasource.auto-discover", code="invalid_plan", stage="safety")
+
+    created: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    for table in tables:
+        tname = str(table.get("tableName", ""))
+        dname = f"{prefix}{tname}"
+        try:
+            table_info = datasource_table_fields(client, datasource_id, tname)
+            fields = table_info["fields"]
+            current_ds = dict(table)
+            current_ds["datasetGroupId"] = None
+            current_ds["fields"] = None
+            current_ds["lastUpdateTime"] = 0
+            current_ds["status"] = None
+
+            ds_fields = []
+            for field in fields:
+                ds_fields.append({
+                    "datasourceId": str(datasource_id),
+                    "datasetTableId": str(table.get("id", "")),
+                    "datasetGroupId": None,
+                    "chartId": None,
+                    "originName": field.get("originName") or field.get("name", ""),
+                    "name": field.get("name") or "",
+                    "dbFieldName": None,
+                    "description": field.get("description") or field.get("name", ""),
+                    "dataeaseName": field.get("dataeaseName", ""),
+                    "groupType": field.get("groupType", ""),
+                    "type": field.get("type", ""),
+                    "deType": field.get("deType", 0),
+                    "deExtractType": field.get("deExtractType", 0),
+                    "extField": 0,
+                    "checked": True,
+                    "fieldShortName": field.get("fieldShortName") or field.get("dataeaseName", ""),
+                })
+
+            info = json.dumps([{
+                "currentDs": current_ds,
+                "currentDsField": None,
+                "currentDsFields": ds_fields,
+            }], ensure_ascii=False, separators=(",", ":"))
+
+            spec = {
+                "name": dname,
+                "pid": str(args.pid or "0"),
+                "nodeType": "dataset",
+                "mode": 0,
+                "info": info,
+            }
+
+            response = client.data("POST", "/datasetTree/create", spec)
+            resource_id = _extract_id(response)
+            created.append({"table": tname, "dataset_name": dname, "id": resource_id})
+        except DataEaseError as exc:
+            errors.append({"table": tname, "error": exc.to_dict()})
+
+    result = {
+        "datasource_id": datasource_id,
+        "total_tables": len(tables),
+        "created": len(created),
+        "datasets": created,
+        "errors": errors,
+    }
+    audit_id = audit.write(operation, status="success", risk="L2", target=plan.get("target"), changes=plan.get("changes"), result=result)
+    plans.mark_applied(args.plan_id, audit_id)
+    return _envelope(operation, result, mode="apply", adapter="official-api", audit_id=audit_id)

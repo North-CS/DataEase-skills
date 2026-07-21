@@ -995,6 +995,15 @@ def build_parser() -> argparse.ArgumentParser:
     dataset_delete.add_argument("--apply", action="store_true")
     dataset_delete.add_argument("--plan-id", default="")
     dataset_delete.add_argument("--confirm-token", default="")
+    # Quick-create: one command from datasource table
+    dataset_qc = dataset_actions.add_parser("quick-create")
+    dataset_qc.add_argument("--datasource-id", required=True)
+    dataset_qc.add_argument("--table-name", required=True)
+    dataset_qc.add_argument("--name", default="")
+    dataset_qc.add_argument("--pid", default="0")
+    dataset_qc.add_argument("--apply", action="store_true")
+    dataset_qc.add_argument("--plan-id", default="")
+    dataset_qc.add_argument("--confirm-token", default="")
 
     model = domains.add_parser("model")
     model_actions = model.add_subparsers(dest="action", required=True)
@@ -1158,6 +1167,16 @@ def build_parser() -> argparse.ArgumentParser:
     ds_sync_logs.add_argument("--id", required=True)
     ds_sync_logs.add_argument("--page", type=int, default=1)
     ds_sync_logs.add_argument("--size", type=int, default=20)
+    # Auto-discover: scan datasource and batch-create datasets
+    ds_discover = datasource_actions.add_parser("auto-discover")
+    ds_discover.add_argument("--id", required=True)
+    ds_discover.add_argument("--table-pattern", default=None, help="可选正则过滤表名")
+    ds_discover.add_argument("--prefix", default="", help="数据集名称前缀")
+    ds_discover.add_argument("--pid", default="0")
+    ds_discover.add_argument("--ack-no-rollback", action="store_true")
+    ds_discover.add_argument("--apply", action="store_true")
+    ds_discover.add_argument("--plan-id", default="")
+    ds_discover.add_argument("--confirm-token", default="")
 
     visual = domains.add_parser("visual")
     visual_actions = visual.add_subparsers(dest="action", required=True)
@@ -1525,6 +1544,8 @@ def run(argv: list[str] | None = None) -> int:
                 "validate-spec",
                 "sync",
                 "sync-logs",
+                "quick-create",
+                "auto-discover",
             }:
                 result = handle_data_mutation(args, settings, client, plans, audit)
             elif key == "visual.list":
