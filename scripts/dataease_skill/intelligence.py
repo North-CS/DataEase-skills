@@ -247,7 +247,7 @@ def build_visual_plan(
                 "dataset_name": str(dataset["id"]),
                 "x_axis": [ohlc["date_field"]] if ohlc["date_field"] else dates[:1],
                 "y_axis": ohlc["fields"],
-                "y_aggregations": ["last" for _ in ohlc["fields"]],
+                "y_aggregations": ["none" for _ in ohlc["fields"]],
                 "intent": "ohlc",
             })
             recommendations.append(f"数据集“{dataset_name}”识别到 OHLC 四价结构，已推荐 K 线图。")

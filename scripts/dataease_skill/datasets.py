@@ -19,15 +19,15 @@ AVERAGE_PATTERN = re.compile(
     re.I,
 )
 SNAPSHOT_PATTERN = re.compile(
-    r"(开盘|收盘|最高|最低|open|close|high|low|成交价|结算价|市价|最新价|现价|current_price)",
+    r"(开盘|收盘|open|close|结算价|市价|最新价|现价|current_price|latest)",
     re.I,
 )
 PEAK_PATTERN = re.compile(
-    r"(最高|最大|峰值|上限|max|maximum|peak|high_water|limit)",
+    r"(最高|最大|峰值|上限|max|maximum|peak|high_water|limit|high_price|最高价)",
     re.I,
 )
 MIN_PATTERN = re.compile(
-    r"(最低|最小|谷值|下限|min|minimum|trough|low_water|floor)",
+    r"(最低|最小|谷值|下限|min|minimum|trough|low_water|floor|low_price|最低价)",
     re.I,
 )
 

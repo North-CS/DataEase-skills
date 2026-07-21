@@ -18,7 +18,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         "#00D9FF", "#7C5CFF", "#20E3B2", "#FFB347", "#FF5DA2",
         "#4D96FF", "#9DFFB0", "#A78BFA", "#22D3EE",
     ]
-    SUPPORTED_AGGREGATIONS = {"sum", "avg", "max", "min", "count", "count_distinct"}
+    SUPPORTED_AGGREGATIONS = {"sum", "avg", "max", "min", "count", "count_distinct", "last", "first", "none", "median", "stdev", "variance"}
 
     def _asset_data_uri(self, configured_path: str) -> str:
         if not configured_path:
