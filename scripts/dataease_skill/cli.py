@@ -242,13 +242,13 @@ def _visual_create(
         spec["charts"],
         busi_type=str(spec.get("kind") or "dashboard"),
         theme=str(spec.get("theme") or "business-light"),
-        publish=False,
+        publish=True,
         append_timestamp=False,
     )
     detail = _visual_resource_detail(client, str(spec.get("kind") or "dashboard"), str(dashboard_id))
-    if detail.get("status") not in {0, False, None}:
+    if detail.get("status") not in {1, True}:
         raise DataEaseError(
-            "资源创建后意外处于发布状态",
+            "资源创建后未处于已发布状态",
             code="unexpected_publish_state",
             stage="verification",
             details={"id": str(dashboard_id), "status": detail.get("status")},
