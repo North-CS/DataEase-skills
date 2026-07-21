@@ -112,17 +112,13 @@ class DatasetService:
         }
 
     def preview(self, name_or_id: str, *, limit: int = 50) -> dict[str, Any]:
-        """Fetch dataset data preview with graceful degradation across multiple API paths.
+        """Fetch dataset data with multiple strategies.
 
-        Strategy:
-          1. Try /datasetData/previewData (direct-connect datasets — mode=0)
-          2. Try /datasetField/listByDatasetGroup (fallback: field metadata)
-          3. Try /datasetTree/details (last-resort: table schema info)
-          4. Return clear degradation message so Agent can guide user to Web UI
-
-        Direct-connect datasets (mode=0) often throw server-side NPE when
-        getAllFields() returns null in the Java backend.  This method captures
-        that and degrades gracefully instead of crashing.
+        Strategy order:
+          1. /chartData/getData — chart pipeline, works for ALL datasets (including mode=0)
+          2. /datasetData/previewData — native preview (sometimes NPE on mode=0)
+          3. /datasetField/listByDatasetGroup — field metadata only (graceful degradation)
+          4. /datasetTree/details — schema info (last resort)
         """
         dataset = self.resolve(name_or_id)
         dataset_id = str(dataset.get("id"))
@@ -130,7 +126,57 @@ class DatasetService:
         mode = dataset.get("mode", 0)
         attempts: list[dict[str, Any]] = []
 
-        # Attempt 1: /datasetData/previewData
+        # ── Strategy 1: /chartData/getData (chart pipeline, most reliable) ──
+        try:
+            fields = self.client.data("POST", f"/datasetField/listByDatasetGroup/{dataset_id}")
+            if isinstance(fields, list) and fields:
+                dims = [f for f in fields if str(f.get("groupType", "")).lower() == "d"]
+                measures = [f for f in fields if str(f.get("groupType", "")).lower() == "q"]
+                x_field = dims[0] if dims else fields[0]
+                y_fields = measures[:3] if measures else [fields[-1]] if len(fields) > 1 else []
+
+                chart_payload = {
+                    "tableId": dataset_id,
+                    "sceneId": "0",
+                    "type": "bar",
+                    "render": "antv",
+                    "resultCount": limit,
+                    "resultMode": "custom",
+                    "xaxis": [x_field],
+                    "xaxisExt": [],
+                    "yaxis": y_fields,
+                    "yaxisExt": [],
+                    "extLabel": [],
+                    "extStack": [],
+                    "extTooltip": [],
+                    "extBubble": [],
+                    "drill": False,
+                    "drillFields": [],
+                    "sort": [],
+                    "filter": [],
+                    "viewFilter": {},
+                    "customFilter": {"logic": None, "items": None},
+                }
+                result = self.client.data("POST", "/chartData/getData", chart_payload)
+                if isinstance(result, dict):
+                    data = result.get("data", {})
+                    rows = data.get("data") if isinstance(data, dict) else None
+                    if isinstance(rows, list) and rows:
+                        return {
+                            "dataset": {"id": dataset_id, "name": dataset_name, "mode": mode},
+                            "source": "/chartData/getData",
+                            "total": len(rows),
+                            "rows": rows[:limit],
+                            "row_count": len(rows[:limit]),
+                            "truncated": len(rows) > limit,
+                            "fields": [f.get("name") for f in fields],
+                            "field_count": len(fields),
+                        }
+                attempts.append({"endpoint": "/chartData/getData", "status": "empty_or_no_data"})
+        except DataEaseError as exc:
+            attempts.append({"endpoint": "/chartData/getData", "status": "error", "detail": str(exc)[:200]})
+
+        # ── Strategy 2: /datasetData/previewData ──
         try:
             payload = {
                 "id": dataset_id,
@@ -158,12 +204,12 @@ class DatasetService:
                 attempts.append({
                     "endpoint": "/datasetData/previewData",
                     "status": "server_npe",
-                    "note": "直连数据集 mode=0 时服务端 getAllFields() 返回 null，属于已知 DataEase 服务端问题",
+                    "note": "mode=0 时服务端 getAllFields() 返回 null，属于已知 DataEase 问题",
                 })
             else:
                 attempts.append({"endpoint": "/datasetData/previewData", "status": "error", "detail": str(exc)[:200]})
 
-        # Attempt 2: /datasetField/listByDatasetGroup
+        # ── Strategy 3: /datasetField/listByDatasetGroup (field metadata) ──
         try:
             fields = self.client.data("POST", f"/datasetField/listByDatasetGroup/{dataset_id}")
             if isinstance(fields, list) and fields:
@@ -171,7 +217,7 @@ class DatasetService:
                     "dataset": {"id": dataset_id, "name": dataset_name, "mode": mode},
                     "source": "/datasetField/listByDatasetGroup",
                     "degraded": True,
-                    "degradation_reason": "只能获取字段结构，无法获取实际数据行。直连数据集请使用 Web UI 或数据库直连预览。",
+                    "degradation_reason": "仅获取字段结构，未获取数据行。",
                     "field_count": len(fields),
                     "field_names": [f.get("name") or f.get("dataeaseName") or f"field_{f.get('id')}" for f in fields[:50]],
                     "rows": [],
@@ -181,7 +227,7 @@ class DatasetService:
         except DataEaseError as exc:
             attempts.append({"endpoint": "/datasetField/listByDatasetGroup", "status": "error", "detail": str(exc)[:200]})
 
-        # Attempt 3: /datasetTree/details
+        # ── Strategy 4: /datasetTree/details (schema only) ──
         try:
             details = self.client.data("GET", f"/datasetTree/details/{dataset_id}")
             if not isinstance(details, dict):
@@ -192,7 +238,7 @@ class DatasetService:
                     "dataset": {"id": dataset_id, "name": dataset_name, "mode": mode, "table": table_name},
                     "source": "/datasetTree/details",
                     "degraded": True,
-                    "degradation_reason": f"只能获取物理表名 ({table_name})，无法获取数据预览。直连数据集 (mode={mode}) 的数据预览在服务端存在已知限制。",
+                    "degradation_reason": f"仅获取物理表名 ({table_name})。",
                     "rows": [],
                     "row_count": 0,
                     "workaround": "请通过 DataEase Web UI 或直连数据库查看数据。",
@@ -201,16 +247,16 @@ class DatasetService:
         except DataEaseError as exc:
             attempts.append({"endpoint": "/datasetTree/details", "status": "error", "detail": str(exc)[:200]})
 
-        # All attempts failed
+        # All paths failed
         return {
             "dataset": {"id": dataset_id, "name": dataset_name, "mode": mode},
             "source": "none",
             "degraded": True,
-            "degradation_reason": "所有数据预览路径均失败。直连数据集 (mode=0) 在当前 DataEase 版本不支持通过 API 预览数据。",
+            "degradation_reason": "所有数据路径均失败。",
             "attempts": attempts,
             "rows": [],
             "row_count": 0,
-            "workaround": "请通过 DataEase Web UI (数据准备 → 数据集 → 预览) 或直连数据库查看数据。",
+            "workaround": "请通过 DataEase Web UI 或直连数据库查看数据。",
         }
 
 
