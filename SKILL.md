@@ -1,172 +1,177 @@
 ---
 name: dataease
-description: DataEase V2 platform skill — safe CLI for data exploration, modeling, dashboard/DataV editing, and platform management. 通过安全分级 CLI 探索数据、建模、编辑可视化并管理 DataEase V2 平台。Use when you need to model datasets; create or component-edit dashboards and DataV screens; orchestrate resource permissions; back up, restore or migrate resources; manage plugins/drivers; build a gated analytics solution; manage data filling, users, settings, SSO, enterprise integrations, reports or Webhooks; or diagnose DataEase version compatibility.
+description: DataEase V2 智能平台技能 — 数据探索、可视化构建、平台管理、认证集成与自动化。触发场景：DataEase 数据集/数据源管理、仪表板/DataV 大屏创建编辑、权限编排、资源备份迁移、插件驱动管理、用户角色安全、SSO 集成、定时报告、Webhook 配置。
 ---
 
-# DataEase V2 智能平台技能
+# 🖥️ DataEase V2 智能平台技能
 
-一站式完成 DataEase 数据探索、可视化构建、平台管理、认证集成与自动化，并把高风险操作约束在可审计的 dry-run、确认令牌和回读验证流程中。
+一站式 DataEase 自动化——从数据探索到可视化构建，从平台管理到认证集成。高风险操作约束在 dry-run、确认令牌和回读验证流程中。
 
-## 核心能力
+---
 
-| 功能模块 | 命令族 | 风险范围 |
-|---|---|---|
-| 连接诊断与平台盘点 | `system`、`inventory` | L0 |
-| 数据源、数据集、SQL/多表模型、计算字段与行列权限 | `datasource`、`dataset`、`model` | L0-L3 |
-| 仪表板与 DataV 创建、组件编辑、联动、主题、发布、截图 | `visual` | L0-L3 |
-| 用户/角色到具体业务资源的权限编排 | `permission` | L0-L3 |
-| 可移植备份、恢复、跨实例迁移与原生导出 | `transfer` | L0-L3 |
-| 插件与数据库驱动检查、安装、升级、回滚 | `plugin`、`driver` | L0-L3 |
-| 数据质量→指标→模型→大屏→权限→报告一站式编排 | `solution` | L0-L3 |
-| 数据填报表单、任务与数据行 | `filling` | L0-L3 |
-| 组织、用户、角色与权限矩阵 | `admin organization-*`、`role-*`、`user-*` | L0-L3 |
-| 系统设置、邮件、MFA、HMAC 与 SSO | `admin setting-*`、`sso-*` | L0-L3 |
-| 钉钉、企微、飞书和 Larksuite | `admin integration-*` | L0-L3 |
-| 定时报告与 Webhook | `report`、`webhook` | L0-L3 |
+## 🎯 核心能力
 
-## 执行原则
+| 功能 | 命令族 | 风险 |
+|------|--------|------|
+| 🔍 连接诊断与平台盘点 | `system`、`inventory` | L0 |
+| 📊 数据源、数据集、SQL/多表模型、计算字段与行列权限 | `datasource`、`dataset`、`model` | L0–L3 |
+| 📈 仪表板与 DataV 创建、组件编辑、联动、主题、发布、截图 | `visual` | L0–L3 |
+| 🔐 用户/角色到具体业务资源的权限编排 | `permission` | L0–L3 |
+| 🔄 可移植备份、恢复、跨实例迁移与原生导出 | `transfer` | L0–L3 |
+| 🧩 插件与数据库驱动检查、安装、升级、回滚 | `plugin`、`driver` | L0–L3 |
+| 🧠 数据质量→指标→模型→大屏→权限→报告一站式编排 | `solution` | L0–L3 |
+| 📋 数据填报表单、任务与数据行 | `filling` | L0–L3 |
+| 👥 组织、用户、角色与权限矩阵 | `admin organization-*`、`role-*`、`user-*` | L0–L3 |
+| ⚙️ 系统设置、邮件、MFA、HMAC 与 SSO | `admin setting-*`、`sso-*` | L0–L3 |
+| 🔗 钉钉、企微、飞书和 Larksuite | `admin integration-*` | L0–L3 |
+| 📬 定时报告与 Webhook | `report`、`webhook` | L0–L3 |
 
-1. 先检查实例、组织、版本、能力和目标资源，再设计或修改。
-2. 范围明确的读取操作直接执行；任何写操作先生成 dry-run 计划。
-3. 只执行用户确认的同一 `plan_id`。L3 必须同时提供计划返回的 `confirmation_token`。
-4. 写入后回读目标；大屏和仪表板还要输出预览 URL 与截图/PDF。
-5. 优先使用官方 API，其次使用明确匹配版本的适配器，最后才使用浏览器自动化，并在结果中说明适配器。
+---
 
-## 快速开始
+## 🔒 安全分级
 
-复制 `.env.example` 为 `.env`。系统 API 优先使用 AK/SK，用户会话可使用用户名和密码。不得打印或提交 `.env`，也不得把密钥放进命令参数。
+| 级别 | 描述 | 行为要求 |
+|------|------|----------|
+| 🟢 **L0** | 只读操作：列表、查看、诊断、截图 | 直接执行 |
+| 🟡 **L1** | 普通创建：仪表板、DataV、表单、用户、数据资源 | 先 dry-run，用 plan_id 确认后执行 |
+| 🟠 **L2** | 编辑操作：可视化组件/字段/主题/筛选器修改、模型保存、发布、编辑用户资料（不改角色） | 展示 diff，用 plan_id 确认后执行 |
+| 🔴 **L3** | 高危操作：权限变更、恢复/迁移、方案执行、插件/驱动、删除、清空、报告启动、角色编辑、管理员创建、认证变更、用户禁用、数据源连接变更 | 必须提供快照/回滚说明 + plan_id + confirmation_token |
 
-```bash
-# Python 安装 (推荐)
-python -m venv .venv
-source .venv/bin/activate # Windows: .venv\Scripts\activate
-python -m pip install -r requirements.txt
-pip install -e .  # 安装 dataease-skill 包，使模块可直接 import
+> 计划 30 分钟过期。目标、组织、版本或资源状态变化时废弃旧计划，重新 dry-run。
 
-# Node.js / 截图依赖 (可选，跳过也能正常使用 CLI)
-npm install  # postinstall 自动安装 Chromium；不可用时降级提示
+---
 
-# 验证安装
-dataease system doctor  # 如果使用了 pip install -e .
-# 或者: python scripts/dataease.py system doctor
-```
+## 🚀 快速开始
 
-使用当前虚拟环境的解释器：Windows 通常是 `python`，Linux/macOS 通常是 `python3`；跨平台脚本调用应优先使用 `python -m` 或当前解释器，不要写死系统路径。安装 `pip install -e .` 后可直接使用 `dataease` 入口命令，无需每次设置 `PYTHONPATH`。
+**1. 配置环境**
 
-如果 Playwright Chromium 安装超时（常见于受限网络/沙箱环境），设置 `DATAEASE_SKIP_BROWSER_INSTALL=1` 跳过。截图功能不可用，但 CLI 其他功能不受影响。事后可手动运行 `npx playwright install chromium` 重试。
+复制 `.env.example` 为 `.env`，填入 DataEase 实例凭据（AK/SK 优先，也支持用户名密码登录）。
 
-### 克隆故障排除
-
-如果 `git clone` 因残留目录失败且无法删除（沙箱环境中 `.git` 目录常受权限限制无法直接 `rm -rf`），需要进行两步操作：
-
-1. 调 Agent 的文件删除授权接口（如 `allow_cowork_file_delete`）
-2. 授权通过后再 `rm -rf` 清理残余目录
-
-不要反复重试 clone 或使用 `--force`；先用授权路径清理再重新克隆。
-
-### Python 导入方式
-
-支持两种导入方式：
+**2. 安装依赖**
 
 ```bash
-# 方式 1: pip install -e . 完成后直接 import
-python -c "from dataease_skill.client import DataEaseClient"
-
-# 方式 2: 传统 PYTHONPATH（始终可用）
-PYTHONPATH=scripts python -c "from dataease_skill.client import DataEaseClient"
+pip install -r requirements.txt    # Python 依赖
+npm install                        # Node 依赖 + Chromium（截图用，可选）
 ```
 
-默认代理模式为 `DATAEASE_PROXY_MODE=auto`：本机和私网 DataEase 地址绕过环境代理，公网地址保留代理。私有 CA 使用 `DATAEASE_CA_BUNDLE`；只在已知测试实例上使用 `--insecure`。
+如果 Chromium 安装超时（受限网络/沙箱），设置 `DATAEASE_SKIP_BROWSER_INSTALL=1` 跳过，事后可手动 `npx playwright install chromium`。
 
-## 标准工作流
+**3. 验证安装**
 
-1. 首次连接运行 `python scripts/dataease.py system doctor` 和 `system capabilities`。
-2. 只读取本次任务需要的参考：
-   - 平台和数据能力：[references/platform.md](references/platform.md)
-   - 大屏与仪表板设计：[references/visualization.md](references/visualization.md)
-   - 高级平台编排与规格：[references/advanced.md](references/advanced.md)
-   - 命令和结果契约：[references/commands.md](references/commands.md)
-   - DTO 规格示例：[references/specs.md](references/specs.md)
-   - 风险、确认和回滚：[references/safety.md](references/safety.md)
-   - 操作系统与 Agent 兼容性：[references/compatibility.md](references/compatibility.md)
-   - 已验证范围和缺口：[references/validation.md](references/validation.md)
-3. 读取目标组织、数据集和已有资源；名称不唯一时要求精确 ID。
-4. 写操作先不加 `--apply`，向用户展示 `changes`、`risk`、`plan_id` 和回滚说明。
-5. 用户确认后重复同一配置，并传入 `--apply --plan-id <id>`；L3 再传 `--confirm-token <token>`。
-6. 回读并验证；目标、组织、版本、角色状态或请求载荷变化时废弃旧计划。
+```bash
+python scripts/dataease.py system doctor
+```
 
-所有入口使用同一个显式组织上下文：在 `.env` 设置 `DATAEASE_ORG_ID`，或把全局 `--org-id` 放在域命令之前。不要依赖一个进程执行 `switch-org` 后让另一个进程继承内存 Token；不要打印或持久化组织 Token。
+代理：`DATAEASE_PROXY_MODE=auto` 下私网地址自动绕过代理，私有 CA 用 `DATAEASE_CA_BUNDLE`。
 
-## 智能大屏与仪表板
+---
 
-先分析数据，再生成可视化方案：
+## 📋 执行原则
+
+1. 🔍 **先探查再操作**：检查实例、组织、版本、能力和目标资源后，再设计或修改。
+2. 🛡️ **读直接做，写先计划**：读取操作直接执行；写操作先生成 dry-run 计划展示 `changes`、`risk`、`plan_id`。
+3. 🔑 **严格确认**：只执行用户确认的同一 `plan_id`，L3 操作需额外提供 `confirmation_token`。
+4. ✅ **写后验证**：写入后回读确认；大屏和仪表板输出预览 URL 与截图/PDF。
+5. 🎯 **API 优先**：优先官方 API → 版本适配器 → 浏览器自动化，降级时说明原因。
+
+---
+
+## 📊 可视化构建
+
+### 支持的图表类型
+
+| 类型 | 模板 | plan 自动识别 |
+|------|------|---------------|
+| 📊 柱状图 | `bar` | 有维度 + 指标（默认） |
+| 📈 折线图 | `line` | 有日期字段 |
+| 🥧 饼图 | `pie` | 有维度 + 单个指标 |
+| 📋 明细表 | `table_info` | 始终生成 |
+| 📉 K 线图 | `candle` | OHLC 四价 (open/high/low/close) |
+| ⚡ 仪表盘 | `gauge` | 当前值/得分 (current/value/score) |
+| 🌊 瀑布图 | `waterfall` | 金额/盈亏 (amount/revenue/cost/profit) |
+
+### 智能规划
+
+先探查数据，再自动生成可视化方案：
 
 ```bash
 # 数据探查
 python scripts/dataease.py dataset profile --dataset "销售数据"
-python scripts/dataease.py dataset preview --dataset "销售数据"      # 数据预览 (graceful degradation)
-python scripts/dataease.py dataset data --dataset "销售数据" --limit 20
+python scripts/dataease.py dataset preview --dataset "销售数据"
 
-# 智能图表与语义布局规划（同时支持 dashboard 和 dataV）
+# 智能图表与布局规划
 python scripts/dataease.py dataset plan --dataset "销售数据" --title "销售经营分析" --busi-type dataV
 python scripts/dataease.py dataset plan --dataset "销售" --dataset "目标" --dataset "库存" --title "经营驾驶舱" --busi-type dataV
-python scripts/dataease.py visual inspect --resource-id 123 --busi-type dataV
+
+# 一站式方案执行
 python scripts/dataease.py solution plan --spec sales-solution.json
 ```
 
-审阅生成的 visual spec，校正业务口径后传给 `visual create --spec`。
-规划器按 KPI、趋势、构成、排行、对比和明细识别组件角色：KPI 优先置顶，趋势图优先宽屏，构成图作为侧栏，明细表横跨底部。仪表板使用响应式网格；DataV 同时生成像素位置。调用者提供的 `layout` 始终优先。
+规划器自动识别组件角色：KPI 置顶、趋势图宽屏、构成图侧栏、明细表横跨底部。生成的 visual spec 审阅确认后用 `visual create --spec` 执行。
 
-### 支持的图表类型
+---
 
-| 类型 | 模板名称 | plan 自动识别 |
-|---|---|---|
-| 柱状图 | `bar` | 有维度 + 指标 (默认) |
-| 折线图 | `line` | 有日期字段 |
-| 饼图 | `pie` | 有维度 + 单个指标 |
-| 明细表 | `table_info` | 始终生成 |
-| K 线图 | `candle` | OHLC 四价 (open/high/low/close) |
-| 仪表盘 | `gauge` | 当前值/得分 (current/value/score) |
-| 瀑布图 | `waterfall` | 金额/盈亏 (amount/revenue/cost/profit) |
+## 🛡️ 安全边界
 
-### 数据集预览
+| 操作类型 | 风险 | 特殊约束 |
+|----------|------|----------|
+| 👤 创建普通用户 | L1 | — |
+| 👑 创建管理员用户 | L3 | role 为 root=true, readonly=false 时自动升级 |
+| ✏️ 编辑用户资料 | L2 | roleIds 变化时立即升为 L3 |
+| 🎭 角色编辑 | L3 | 只编辑名称/描述用 `role-edit`，修改权限矩阵用 `role-permission-set` |
+| 🔑 权限编排 | L3 | `permission apply` 绑定 user/role 身份与资源范围，逐条校验 |
+| 📐 行列权限 | L3 | `model permission-*` 变更数据暴露范围 |
+| 🎨 可视化编辑 | L2 | `visual patch`、`model save` |
+| 🔄 跨实例迁移 | L3 | 绑定源/目标实例、组织、版本、bundle 摘要和 ID 映射 |
+| 🧩 插件/驱动变更 | L3 | 绑定精确包 SHA-256，回滚需自行保留已知安全版本 |
+| 🗑️ 删除/清空 | L3 | 无回滚说明时拒绝执行 |
+| 🔗 认证/集成变更 | L3 | 含 SSO、企业集成配置 |
+| 📬 报告启动/创建 | L3 | — |
+| 🚫 禁用用户 | L3 | — |
+| 🔌 数据源连接/结构变更 | L3 | — |
+| 🧪 版本适配 | 动态 | 高于 `2.10.25` 默认只读；`DATAEASE_ALLOW_UNVERIFIED_VERSION=true` 仅在隔离兼容性测试中使用 |
 
-`dataset preview` 对直连数据库型数据集 (mode=0) 提供 graceful degradation：
+> ⚠️ X-Pack 功能取决于版本、授权和账号权限。`system capabilities` 未确认前不得宣称可用。
 
-1. 先尝试 `/datasetData/previewData` 获取数据行
-2. 服务端 NPE 时自动降级到字段元数据
-3. 回退到 `/datasetTree/details` 获取物理表名
-4. 始终输出 `degraded` 标记和 `workaround` 指引
+---
 
-Agent 调用 `dataset profile` 前应先执行一次 `dataset preview`，根据结果决定是否需要引导用户到 Web UI。
+## 📋 标准工作流
 
-自动字段角色、聚合方式和 KPI 只是建议，不得把它们当做已经确认的业务定义。修改已有资源使用 `visual inspect` 后再做 `visual patch`；不得凭猜测填写组件 ID、字段 ID 或联动 DTO。
+1. 首次连接运行 `system doctor` 和 `system capabilities`。
+2. 读取目标组织、数据集和已有资源；名称不唯一时要求精确 ID。
+3. 按需查阅参考文档：`references/platform.md`、`references/visualization.md`、`references/advanced.md`、`references/commands.md`、`references/safety.md`。
+4. 写操作先不加 `--apply`，展示 `changes`、`risk`、`plan_id` 和回滚说明。
+5. 用户确认后传入 `--apply --plan-id <id>`，L3 追加 `--confirm-token <token>`。
+6. 回读验证，状态变化时废弃旧计划。
 
-## 安全边界
+组织上下文：在 `.env` 设 `DATAEASE_ORG_ID`，或用 `--org-id` 参数。禁止打印或持久化组织 Token。
 
-- 创建普通用户为 L1；创建带管理员角色的用户为 L3。
-- 普通用户资料编辑为 L2；`roleIds` 发生变化立即升为 L3。
-- `role-edit` 统一为 L3，防止角色定义或权限相关变更绕过确认。
-- `role-edit` 只编辑名称/描述；单角色矩阵使用 `role-permissions`/`role-permission-set`，跨用户/角色与多资源范围使用 L3 `permission apply`。独立的数据集行列规则使用 L3 `model permission-*`。接口不存在或变更无法安全回读时返回 `capability_unavailable`，不得暗中改用 UI 自动化。
-- `visual patch` 和 `model save` 为 L2；资源授权、行列权限、跨实例恢复、一站式执行及插件/驱动变更为 L3。
-- `system adapter` 必须先确认目标版本。高于已验证上限的版本默认只读；不得在未验证版本上自动放开写操作。
-- 删除、清空、启动/立即执行报告、认证/集成变更、禁用用户、数据源连接/结构变更和插件操作均为 L3。
-- L3 没有回滚说明或明确的不可回滚确认时拒绝执行。
-- DataEase 版本、目标快照、组织上下文、请求摘要和管理员角色状态均绑定计划；不允许复用、伪造或降级计划。
-- DataEase X-Pack 功能取决于版本、授权和当前账号权限；`system capabilities` 未确认前不得宣称可用。
+---
 
-## 结果处理
+## 📦 结果输出
 
-统一 CLI 输出一个 JSON 文档，包含 `ok`、`operation`、`result`、`changes`、`artifacts`、`warnings` 和适用时的 `audit_id`。失败时返回脱敏的结构化错误并以非零状态退出。
+统一 CLI 输出 JSON：
 
-列表命令 (`datasource list`、`dataset list`) 现在返回结构化对象：`{total_count: N, items: [...]}`。使用 `--summary` flag 可额外获得按类型/路径的分组统计，避免对大列表手动计数。
+```json
+{"ok": true, "operation": "...", "result": {...}, "changes": [...], "artifacts": [...], "warnings": [...]}
+```
 
-在 Codex 中用绝对 Markdown 路径展示本地文件；OpenClaw 需要时使用 `MEDIA:<absolute_path>`；其他 Agent 按其宿主的附件协议处理。始终返回可用的 DataEase 预览 URL。报告收件人、Webhook 完整 URL、数据源密码、平台/SSO 密钥和用户敏感信息不得进入计划或公开结果。
+列表命令返回 `{total_count: N, items: [...]}`，`--summary` 可附加按类型/路径的分组统计。
 
-## 兼容性
+输出文件直接展示给用户；始终附带 DataEase 预览 URL。报告收件人、Webhook URL、数据源密码、SSO 密钥等敏感信息禁止出现在计划或公开结果中。
 
-核心 CLI 使用 Python 3.10+，截图/PDF 额外使用 Node.js 18+、Playwright 和 Chromium。代码按 Windows、Linux、macOS 的路径与进程模型编写，但“可运行”和“已实测”必须区分；不得宣称所有 AI Agent 都原生支持。安装位置、宿主能力、已验证系统和适配方式见 [references/compatibility.md](references/compatibility.md)。
+---
 
-## 旧命令兼容
+## 🔗 兼容性
 
-保留 `scripts/inspect_data.py`、`scripts/deploy.py`、`scripts/multi_deploy.py` 和 `scripts/capture_dashboard.py`，用于兼容既有调用参数与结果字段。新自动化优先使用 `scripts/dataease.py`，因为它提供能力检测、统一结果、安全计划、确认令牌和审计记录。
+- Python 3.10+（核心 CLI）
+- Node.js 18+、Playwright + Chromium（截图/PDF，可选）
+- 代码适配 Windows / Linux / macOS，但「可运行」≠「已实测」
+
+详细兼容性见 `references/compatibility.md`。
+
+---
+
+## 📚 旧命令兼容
+
+保留 `scripts/inspect_data.py`、`scripts/deploy.py`、`scripts/multi_deploy.py`、`scripts/capture_dashboard.py`，向后兼容既有调用参数。新自动化优先使用 `scripts/dataease.py`（能力检测、统一结果、安全计划、确认令牌、审计记录）。

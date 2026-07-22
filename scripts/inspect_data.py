@@ -29,7 +29,7 @@ def main() -> None:
             if args.list_datasets:
                 result = [
                     {"name": item.get("name"), "id": str(item.get("id")), "path": item.get("path")}
-                    for item in service.list()
+                    for item in service.list()["items"]
                 ]
             elif args.profile:
                 result = service.profile(args.dataset)
