@@ -41,6 +41,8 @@ If the optional background file is missing, the engine reports a warning and saf
 
 The planner classifies ID/code fields as identifiers instead of summable measures. Identifier-only datasets use `count_distinct` as an explicit fallback, while rate, ratio, percentage and average fields prefer `avg`; each chart carries aligned `y_aggregations`, and the visual engine writes those values into the DataEase view DTO. All generated KPI definitions remain candidates until their business meaning and aggregation are confirmed.
 
+Chart creation binds the complete authoritative dataset-field DTO (`originName`, `dataeaseName`, `deType`, `groupType`, datasource/table IDs and related metadata) into every rendered axis occurrence. Do not rename template fields without replacing this metadata: DataEase marks mismatched fields red and later edits may drop them.
+
 The template-backed create engine currently supports `bar`, `line`, `pie`, and `table_info`. Capability metadata may advertise additional DataEase chart types, but do not use them for creation until a tested template adapter exists.
 
 ## Editing an existing resource

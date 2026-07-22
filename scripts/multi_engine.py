@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from dataease_skill.layout_planner import plan_smart_layouts
+from dataease_skill.field_binding import bind_field_metadata
 
 from engine import DataEaseChartEngine
 
@@ -258,11 +259,13 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         for index, name in enumerate(x_names):
             field_id = dataset_ctx.get(f"XAXIS{'' if index == 0 else index + 1}_FIELD_ID")
             if field_id:
-                self._update_field_names(view_info, field_id, name)
+                suffix = "" if index == 0 else str(index + 1)
+                bind_field_metadata(view_info, field_id, dataset_ctx[f"XAXIS{suffix}_FIELD_METADATA"])
         for index, name in enumerate(y_names):
             field_id = dataset_ctx.get(f"YAXIS{'' if index == 0 else index + 1}_FIELD_ID")
             if field_id:
-                self._update_field_names(view_info, field_id, name)
+                suffix = "" if index == 0 else str(index + 1)
+                bind_field_metadata(view_info, field_id, dataset_ctx[f"YAXIS{suffix}_FIELD_METADATA"])
                 if y_aggregations and index < len(y_aggregations):
                     self._update_field_aggregation(view_info, field_id, y_aggregations[index])
         self._replace_template_names(view_info, x_names, y_names)

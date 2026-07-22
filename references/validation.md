@@ -4,7 +4,7 @@ Last validated against DataEase `2.10.25` on 2026-07-17. Re-run the checks after
 
 ## Automated checks passed
 
-- 106 Python unit/regression tests, including dashboard/DataV semantic layout, DataV grid-only/pixel layout and aggregation preservation, component move/field/theme patching and identity allowlists, SQL/union/sync-policy model validation, secret-free L3 sync plans, portable ID mapping, plugin package hashing/multipart transport, solution metric/quality gates and permission readback/rollback, multi-dataset planning, organization-context isolation, strict filling-task DTO normalization, role/resource permission normalization, administrator-role detection, dynamic user-edit risk and runtime diagnostics.
+- 107 Python unit/regression tests, including authoritative dataset-field DTO binding, dashboard/DataV semantic layout, DataV grid-only/pixel layout and aggregation preservation, component move/field/theme patching and identity allowlists, SQL/union/sync-policy model validation, secret-free L3 sync plans, portable ID mapping, plugin package hashing/multipart transport, solution metric/quality gates and permission readback/rollback, multi-dataset planning, organization-context isolation, strict filling-task DTO normalization, role/resource permission normalization, administrator-role detection, dynamic user-edit risk and runtime diagnostics.
 - Skill package structure and frontmatter validation (`Skill is valid!`).
 - CLI parser/help smoke tests for all 15 domains.
 - Fresh Python and npm installation from both the release staging directory and the unpacked ZIP.

@@ -2,6 +2,7 @@ import json, re, time, random, os, sys
 
 # Local SDK client
 from client import DataEaseClient
+from dataease_skill.field_binding import bind_field_metadata, normalized_field_metadata
 
 class DataEaseChartEngine:
     def __init__(self, base_url, ak, sk, *, settings=None):
@@ -95,6 +96,7 @@ class DataEaseChartEngine:
             if not f: raise ValueError(f"X-Axis Field '{name}' not found")
             ctx[f"XAXIS{suffix}_FIELD_ID"] = f['id']
             ctx[f"XAXIS{suffix}_DE_NAME"] = f['dataeaseName']
+            ctx[f"XAXIS{suffix}_FIELD_METADATA"] = normalized_field_metadata(f, str(dataset_id))
 
         for i, name in enumerate(y_names):
             suffix = "" if i == 0 else str(i+1)
@@ -103,6 +105,7 @@ class DataEaseChartEngine:
             ctx[f"YAXIS{suffix}_FIELD_ID"] = f['id']
             ctx[f"YAXIS{suffix}_DE_NAME"] = f['dataeaseName']
             ctx[f"YAXIS{suffix}_SERIES_ID"] = f"{f['id']}-yAxis"
+            ctx[f"YAXIS{suffix}_FIELD_METADATA"] = normalized_field_metadata(f, str(dataset_id))
 
             # Additional keys for deep parameterization
             if i == 0:
@@ -200,12 +203,20 @@ class DataEaseChartEngine:
             for i, x_name in enumerate(x_names):
                 f_id = dataset_ctx.get(f"XAXIS{'' if i==0 else i+1}_FIELD_ID")
                 if f_id:
-                    deep_update_field_names(view_info, f_id, x_name)
+                    bind_field_metadata(
+                        view_info,
+                        f_id,
+                        dataset_ctx[f"XAXIS{'' if i==0 else i+1}_FIELD_METADATA"],
+                    )
 
             for i, y_name in enumerate(y_names):
                 f_id = dataset_ctx.get(f"YAXIS{'' if i==0 else i+1}_FIELD_ID")
                 if f_id:
-                    deep_update_field_names(view_info, f_id, y_name)
+                    bind_field_metadata(
+                        view_info,
+                        f_id,
+                        dataset_ctx[f"YAXIS{'' if i==0 else i+1}_FIELD_METADATA"],
+                    )
 
             # 最终保底：如果还有残留的“访问次数”或“访问平台”，强行全局替换
             def brute_force_replace(obj, search_list, replace_list):

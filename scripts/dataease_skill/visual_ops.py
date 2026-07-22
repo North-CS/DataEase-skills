@@ -13,6 +13,7 @@ from .audit import AuditLog
 from .client import DataEaseClient
 from .config import Settings
 from .errors import DataEaseError
+from .field_binding import FIELD_METADATA_KEYS
 from .redact import redact_configuration
 from .safety import PlanStore
 from .versioning import adapter_for_client
@@ -28,12 +29,6 @@ VIEW_PATCH_KEYS = {
     "customStyle", "customFilter", "filters", "filter", "linkage", "drillFields",
     "chartExtRequest", "xAxis", "xAxisExt", "yAxis", "yAxisExt", "extBubble",
     "extLabel", "extStack", "extTooltip", "extColor", "misc",
-}
-FIELD_METADATA_KEYS = {
-    "id", "datasourceId", "datasetTableId", "datasetGroupId", "originName", "name",
-    "dbFieldName", "description", "dataeaseName", "groupType", "type", "precision",
-    "scale", "deType", "deExtractType", "extField", "columnIndex", "dateFormat",
-    "dateFormatType", "fieldShortName", "desensitized", "params",
 }
 AXES = {"xAxis", "xAxisExt", "yAxis", "yAxisExt", "extBubble", "extLabel", "extStack", "extTooltip", "extColor"}
 

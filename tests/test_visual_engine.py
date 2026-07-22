@@ -45,6 +45,48 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(view["xAxis"][0]["summary"], "count")
         self.assertEqual(view["yAxis"][0]["summary"], "avg")
 
+    def test_rendered_fields_use_authoritative_dataset_metadata(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        engine.get_dataset_ctx = lambda *_args: {
+            "DATASET_GROUP_ID": "100",
+            "DATASOURCE_ID": "200",
+            "DATASET_TABLE_ID": "300",
+            "XAXIS_FIELD_ID": "11",
+            "XAXIS_DE_NAME": "f_region",
+            "XAXIS_FIELD_METADATA": {
+                "id": "11", "name": "省级行政区", "originName": "province_name",
+                "dataeaseName": "f_region", "fieldShortName": "f_region", "type": "VARCHAR",
+                "deType": 0, "groupType": "d", "datasetGroupId": "100",
+                "datasetTableId": "300", "datasourceId": "200",
+            },
+            "YAXIS_FIELD_ID": "22",
+            "YAXIS_DE_NAME": "f_profit",
+            "YAXIS_SERIES_ID": "22-yAxis",
+            "YAXIS_FIELD_METADATA": {
+                "id": "22", "name": "利润额", "originName": "profit_amount",
+                "dataeaseName": "f_profit", "fieldShortName": "f_profit", "type": "DECIMAL",
+                "deType": 2, "groupType": "q", "datasetGroupId": "100",
+                "datasetTableId": "300", "datasourceId": "200",
+            },
+        }
+
+        _component, view = engine.extract_chart_payload(
+            "bar", "100", ["省级行政区"], ["利润额"], "9001",
+            {"x": 1, "y": 1, "sizeX": 72, "sizeY": 18, "left": 0, "top": 0, "width": 1920, "height": 540},
+            y_aggregations=["sum"],
+        )
+
+        x_fields = _find_fields(view, "11")
+        y_fields = _find_fields(view, "22")
+        self.assertTrue(x_fields)
+        self.assertTrue(y_fields)
+        self.assertTrue(all(item["originName"] == "province_name" for item in x_fields))
+        self.assertTrue(all(item["dataeaseName"] == "f_region" for item in x_fields))
+        self.assertTrue(all(item["groupType"] == "d" and item["deType"] == 0 for item in x_fields))
+        self.assertTrue(all(item["originName"] == "profit_amount" for item in y_fields))
+        self.assertTrue(all(item["dataeaseName"] == "f_profit" for item in y_fields))
+        self.assertTrue(all(item["groupType"] == "q" and item["deType"] == 2 for item in y_fields))
+
     def test_datav_deploy_preserves_custom_component_layouts(self):
         engine = object.__new__(MultiDataEaseChartEngine)
         engine.base_url = "http://example"
@@ -172,6 +214,19 @@ def _fake_extract_chart_payload(*, view_id, layout, **_kwargs):
     for key in ("width", "height", "left", "top"):
         component["style"][key] = layout[key]
     return component, {"id": view_id}
+
+
+def _find_fields(value, field_id):
+    result = []
+    if isinstance(value, dict):
+        if str(value.get("id")) == str(field_id):
+            result.append(value)
+        for item in value.values():
+            result.extend(_find_fields(item, field_id))
+    elif isinstance(value, list):
+        for item in value:
+            result.extend(_find_fields(item, field_id))
+    return result
 
 
 if __name__ == "__main__":
