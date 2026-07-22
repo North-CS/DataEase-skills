@@ -87,6 +87,59 @@ class LayoutTests(unittest.TestCase):
         positions = {(item["x"], item["y"], item["style"]["left"], item["style"]["top"]) for item in components}
         self.assertEqual(len(positions), 6)
 
+    def test_datav_grid_only_layout_gets_pixel_geometry(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        engine.base_url = "http://example"
+        engine.client = _FakeVisualClient()
+        engine.rand_id = _sequential_ids()
+        engine.extract_chart_payload = _fake_extract_chart_payload
+        engine._apply_component_theme = lambda *_args: None
+        engine._detect_check_version = lambda: "2.10.25"
+        layouts = [
+            {"x": 1, "y": 1, "sizeX": 36, "sizeY": 18},
+            {"x": 37, "y": 1, "sizeX": 35, "sizeY": 18},
+            {"x": 1, "y": 19, "sizeX": 36, "sizeY": 18},
+            {"x": 37, "y": 19, "sizeX": 35, "sizeY": 18},
+        ]
+        charts = [
+            {"type": "bar", "dataset_name": str(index), "layout": layout}
+            for index, layout in enumerate(layouts)
+        ]
+
+        engine.deploy_multi("网格布局", charts, busi_type="dataV", publish=False, append_timestamp=False)
+
+        components = json.loads(engine.client.saved_payload["componentData"])
+        geometry = [
+            (item["style"]["left"], item["style"]["top"], item["style"]["width"], item["style"]["height"])
+            for item in components
+        ]
+        self.assertEqual(
+            geometry,
+            [(0, 0, 960, 540), (960, 0, 933, 540), (0, 540, 960, 540), (960, 540, 933, 540)],
+        )
+        self.assertEqual(len({(left, top) for left, top, _width, _height in geometry}), 4)
+
+    def test_dashboard_smart_layout_uses_semantic_roles(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        engine.base_url = "http://example"
+        engine.client = _FakeVisualClient()
+        engine.rand_id = _sequential_ids()
+        engine.extract_chart_payload = _fake_extract_chart_payload
+        engine._apply_component_theme = lambda *_args: None
+        engine._detect_check_version = lambda: "2.10.25"
+        charts = [
+            {"type": "line", "intent": "trend", "dataset_name": "1"},
+            {"type": "pie", "intent": "composition", "dataset_name": "1"},
+            {"type": "table_info", "intent": "detail", "dataset_name": "1"},
+        ]
+
+        engine.deploy_multi("智能仪表板", charts, busi_type="dashboard", publish=False, append_timestamp=False)
+
+        components = json.loads(engine.client.saved_payload["componentData"])
+        self.assertEqual((components[0]["sizeX"], components[1]["sizeX"]), (48, 24))
+        self.assertEqual(components[2]["sizeX"], 72)
+        self.assertGreater(components[2]["y"], components[0]["y"])
+
 
 class _FakeResponse:
     def raise_for_status(self):

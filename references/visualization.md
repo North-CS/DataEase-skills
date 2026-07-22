@@ -37,7 +37,7 @@
 `kind` accepts `dashboard` or `dataV`. `theme` accepts `business-light` or `neon-dark`. Configure a local background with `DATAEASE_BACKGROUND_IMAGE`; it is embedded into the canvas as a data URI.
 If the optional background file is missing, the engine reports a warning and safely falls back to the theme color.
 
-`dataset plan` can emit a v2 spec from several datasets. Each chart still binds to one DataEase dataset; `dataset_relationships` are review candidates, not executed joins. Custom `layout` values are preserved. When layout is omitted, the engine generates distinct grid and 1920×1080 pixel positions for both dashboards and DataV instead of stacking components.
+`dataset plan` can emit a v2 spec from several datasets. Each chart still binds to one DataEase dataset; `dataset_relationships` are review candidates, not executed joins. The semantic layout planner classifies KPI, trend, composition, ranking, comparison and detail components. It places KPI cards first, gives trends more width, uses composition charts as companions and reserves full-width bottom rows for detail tables. Dashboard uses the generated responsive 72×36 grid; DataV also receives matching canvas pixels. Custom `layout` values remain authoritative, and grid-only DataV layouts are completed without replacing explicit pixels.
 
 The planner classifies ID/code fields as identifiers instead of summable measures. Identifier-only datasets use `count_distinct` as an explicit fallback, while rate, ratio, percentage and average fields prefer `avg`; each chart carries aligned `y_aggregations`, and the visual engine writes those values into the DataEase view DTO. All generated KPI definitions remain candidates until their business meaning and aggregation are confirmed.
 

@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
+from .layout_planner import plan_smart_layouts
+
 from .visual_base import DataEaseChartEngine
 
 
@@ -346,6 +348,27 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             "top": margin_y + row * (height + gap_y),
         }
 
+    @staticmethod
+    def _complete_datav_layout(
+        layout: dict[str, Any],
+        canvas_width: int = 1920,
+        canvas_height: int = 1080,
+    ) -> dict[str, Any]:
+        """Add DataV pixel geometry when a spec only supplies 72x36 grid geometry."""
+        result = dict(layout.get("layout", layout))
+        grid_keys = ("x", "y", "sizeX", "sizeY")
+        if not all(key in result for key in grid_keys):
+            return result
+        try:
+            x, y, size_x, size_y = (float(result[key]) for key in grid_keys)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("DataV layout x/y/sizeX/sizeY must be numeric") from exc
+        result.setdefault("left", round((x - 1) * canvas_width / 72))
+        result.setdefault("top", round((y - 1) * canvas_height / 36))
+        result.setdefault("width", round(size_x * canvas_width / 72))
+        result.setdefault("height", round(size_y * canvas_height / 36))
+        return result
+
     def _detect_check_version(self) -> str:
         configured = os.environ.get("DATAEASE_CHECK_VERSION", "").strip()
         if configured:
@@ -386,10 +409,21 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         component_data: list[dict[str, Any]] = []
         canvas_view_info: dict[str, Any] = {}
         active_view_ids: list[str] = []
+        planned_layouts = plan_smart_layouts(
+            charts_config,
+            canvas_width=int(canvas_style.get("width", 1920)),
+            canvas_height=int(canvas_style.get("height", 1080)),
+        )
         for index, config in enumerate(charts_config):
             view_id = self.rand_id()
             active_view_ids.append(view_id)
-            layout = config.get("layout") or self._auto_layout(index, len(charts_config))
+            layout = config.get("layout") or planned_layouts[index]
+            if busi_type == "dataV":
+                layout = self._complete_datav_layout(
+                    layout,
+                    canvas_width=int(canvas_style.get("width", 1920)),
+                    canvas_height=int(canvas_style.get("height", 1080)),
+                )
             component, view = self.extract_chart_payload(
                 chart_type=config["type"],
                 dataset_id=config["dataset_name"],

@@ -66,7 +66,19 @@ class FieldProfileTests(unittest.TestCase):
         table = next(chart for chart in plan["charts"] if chart["type"] == "table_info")
         self.assertEqual(table["x_axis"], ["日期", "区域"])
         self.assertEqual(table["y_axis"], ["销售额"])
+        self.assertEqual(table["layout"]["sizeX"], 72)
+        self.assertEqual(plan["layout_strategy"]["engine"], "semantic-v1")
         self.assertTrue(plan["recommendations"])
+
+    def test_dashboard_plan_gets_responsive_semantic_layout(self):
+        profile = DatasetService(FakeClient()).profile("销售")
+        plan = build_visual_plan(profile, "销售仪表板", "dashboard")
+        trend = next(chart for chart in plan["charts"] if chart["intent"] == "trend")
+        composition = next(chart for chart in plan["charts"] if chart["intent"] == "composition")
+        detail = next(chart for chart in plan["charts"] if chart["intent"] == "detail")
+        self.assertEqual((trend["layout"]["sizeX"], composition["layout"]["sizeX"]), (48, 24))
+        self.assertEqual(detail["layout"]["sizeX"], 72)
+        self.assertEqual(plan["kind"], "dashboard")
 
     def test_multi_dataset_plan_uses_every_dataset_and_suggests_relationships(self):
         service = DatasetService(MultiDatasetClient())

@@ -107,7 +107,7 @@ python scripts/dataease.py dataset profile --dataset "销售数据"
 python scripts/dataease.py dataset preview --dataset "销售数据"      # 数据预览 (graceful degradation)
 python scripts/dataease.py dataset data --dataset "销售数据" --limit 20
 
-# 智能图表规划 (支持 7 种图表类型，含 K线/仪表盘/瀑布图)
+# 智能图表与语义布局规划（同时支持 dashboard 和 dataV）
 python scripts/dataease.py dataset plan --dataset "销售数据" --title "销售经营分析" --busi-type dataV
 python scripts/dataease.py dataset plan --dataset "销售" --dataset "目标" --dataset "库存" --title "经营驾驶舱" --busi-type dataV
 python scripts/dataease.py visual inspect --resource-id 123 --busi-type dataV
@@ -115,6 +115,7 @@ python scripts/dataease.py solution plan --spec sales-solution.json
 ```
 
 审阅生成的 visual spec，校正业务口径后传给 `visual create --spec`。
+规划器按 KPI、趋势、构成、排行、对比和明细识别组件角色：KPI 优先置顶，趋势图优先宽屏，构成图作为侧栏，明细表横跨底部。仪表板使用响应式网格；DataV 同时生成像素位置。调用者提供的 `layout` 始终优先。
 
 ### 支持的图表类型
 

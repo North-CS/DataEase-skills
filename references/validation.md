@@ -4,14 +4,14 @@ Last validated against DataEase `2.10.25` on 2026-07-17. Re-run the checks after
 
 ## Automated checks passed
 
-- 103 Python unit/regression tests, including DataV layout and aggregation preservation, component move/field/theme patching and identity allowlists, SQL/union/sync-policy model validation, secret-free L3 sync plans, portable ID mapping, plugin package hashing/multipart transport, solution metric/quality gates and permission readback/rollback, multi-dataset planning, organization-context isolation, strict filling-task DTO normalization, role/resource permission normalization, administrator-role detection, dynamic user-edit risk and runtime diagnostics.
+- 106 Python unit/regression tests, including dashboard/DataV semantic layout, DataV grid-only/pixel layout and aggregation preservation, component move/field/theme patching and identity allowlists, SQL/union/sync-policy model validation, secret-free L3 sync plans, portable ID mapping, plugin package hashing/multipart transport, solution metric/quality gates and permission readback/rollback, multi-dataset planning, organization-context isolation, strict filling-task DTO normalization, role/resource permission normalization, administrator-role detection, dynamic user-edit risk and runtime diagnostics.
 - Skill package structure and frontmatter validation (`Skill is valid!`).
 - CLI parser/help smoke tests for all 15 domains.
 - Fresh Python and npm installation from both the release staging directory and the unpacked ZIP.
 - The 25/25 online capability baseline was available through AK/SK, including the role-permission matrix, plugin and driver probes.
 - Full read-only platform inventory with no failed module.
 - Credential scan found no configured DataEase credential in tracked or generated Skill files.
-- DataV deploy serialization preserves both explicit component layouts and distinct automatically generated layouts instead of replacing every component with one full-screen rectangle.
+- DataV deploy serialization preserves explicit pixel layouts, derives pixel geometry from grid-only custom layouts, and keeps automatically generated layouts distinct instead of stacking components.
 - Filling-task aliases are normalized to the official DTO, conflicting aliases and unknown keys are rejected, and the normalized payload is digest-bound to the plan.
 - Role-permission matrices are covered by mocked endpoint lifecycle tests. An isolated test role was granted and then revoked real datasource, dataset and DataV permissions through the L3 plan/apply/readback path.
 - A real non-root role's menu, datasource, dataset, dashboard, DataV and data-filling permission matrices were read successfully through the new command without mutation.

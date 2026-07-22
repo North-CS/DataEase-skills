@@ -4,6 +4,8 @@ import re
 from collections import defaultdict
 from typing import Any
 
+from .layout_planner import describe_layout_strategy, plan_smart_layouts
+
 
 OHLC_PATTERN = re.compile(
     r"(open|开盘|close|收盘|high|最高|low|最低|volume|成交量|成交额|amount|turnover)",
@@ -338,6 +340,9 @@ def build_visual_plan(
             recommendations.append("未发现可靠的跨数据集同名关联字段；当前方案仅在同一画布并列展示多个数据集。")
 
     filters = primary_dates[:1] + primary_dimensions[:2]
+    planned_layouts = plan_smart_layouts(charts)
+    for chart, layout in zip(charts, planned_layouts):
+        chart["layout"] = layout
     return {
         "schema_version": 2,
         "kind": busi_type,
@@ -346,6 +351,7 @@ def build_visual_plan(
         "datasets": [item["dataset"] for item in profiles],
         "theme": "neon-dark" if busi_type == "dataV" else "business-light",
         "charts": charts,
+        "layout_strategy": describe_layout_strategy(charts),
         "interactions": {
             "filters": filters,
             "linkage": True,
