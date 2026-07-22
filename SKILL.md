@@ -109,6 +109,22 @@ python scripts/dataease.py solution plan --spec sales-solution.json
 
 规划器自动识别组件角色：KPI 置顶、趋势图宽屏、构成图侧栏、明细表横跨底部。生成的 visual spec 审阅确认后用 `visual create --spec` 执行。
 
+Visual spec 可选传入 `canvas.width/height/screen_adaptor` 与 `interactions`。规划器会按目标画布重新计算 DataV 像素坐标，并可创建日期/分类查询组件、同数据集同维度图表联动、层级下钻和 URL 跳转。跨数据集同名字段只作为候选关系，不自动建立联动。
+
+内置主题为 `business-light`、`minimal-light`、`neon-dark`、`deep-ocean`、`dark-gold`、`tech-blue`。它们同时作用于画布、组件背景、边框、文字和主色；也可通过 `DATAEASE_BACKGROUND_IMAGE` 使用本地背景图。
+
+### 支持的图表类型
+
+- 指标：`indicator`、`gauge`
+- 趋势：`line`、`area`、`area-stack`、`candle`
+- 柱形：`bar`、`bar-stack`、`percentage-bar-stack`、`bar-group`、`bar-horizontal`、`bar-stack-horizontal`、`waterfall`
+- 构成：`pie`、`pie-donut`、`pie-rose`、`pie-donut-rose`、`radar`、`treemap`、`word-cloud`
+- 表格：`table_info`/`table-info`、`table-normal`、`table-pivot`、`t-heatmap`
+- 地图：`map`、`bubble-map`、`flow-map`、`heat-map`、`symbolic-map`
+- 关系：`scatter`、`funnel`
+
+规划器默认生成指标卡、折线/面积趋势、柱形比较、饼图构成、地图和明细表；仅在字段语义满足条件时选择专业图表。以上是当前适配的常用集合，不代表 DataEase 产品内置的全部图表。未知类型会在创建前被拒绝。
+
 ---
 
 ## 🛡️ 安全边界

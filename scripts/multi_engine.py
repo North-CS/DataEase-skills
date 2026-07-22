@@ -1,4 +1,5 @@
 import base64
+import copy
 import json
 import mimetypes
 import os
@@ -10,6 +11,8 @@ from typing import Any, Dict, List
 
 from dataease_skill.layout_planner import plan_smart_layouts
 from dataease_skill.field_binding import bind_field_metadata
+from dataease_skill.chart_catalog import SUPPORTED_CHART_TYPES, chart_adapter, native_chart_type
+from dataease_skill.interaction_planner import build_query_component, normalize_interactions, shared_linkages
 
 from engine import DataEaseChartEngine
 
@@ -22,6 +25,15 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         "#4D96FF", "#9DFFB0", "#A78BFA", "#22D3EE",
     ]
     SUPPORTED_AGGREGATIONS = {"sum", "avg", "max", "min", "count", "count_distinct"}
+    SUPPORTED_CHART_TYPES = SUPPORTED_CHART_TYPES
+    THEMES = {
+        "business-light": {"dark": False, "background": "#F5F6F7", "accent": "#1E90FF", "text": "#1F2329"},
+        "minimal-light": {"dark": False, "background": "#FFFFFF", "accent": "#5B5BD6", "text": "#242424"},
+        "neon-dark": {"dark": True, "background": "#050B1A", "accent": "#00D9FF", "text": "#DDF8FF"},
+        "deep-ocean": {"dark": True, "background": "#031525", "accent": "#26C6DA", "text": "#D8F3FF"},
+        "dark-gold": {"dark": True, "background": "#15120B", "accent": "#D6A84B", "text": "#F8E8BD"},
+        "tech-blue": {"dark": True, "background": "#071A3D", "accent": "#4D96FF", "text": "#E5F0FF"},
+    }
 
     def _asset_data_uri(self, configured_path: str) -> str:
         if not configured_path:
@@ -37,7 +49,11 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         return f"data:{mime_type};base64,{encoded}"
 
     def _apply_canvas_theme(self, canvas: dict[str, Any], theme: str) -> dict[str, Any]:
-        if theme != "neon-dark":
+        palette = self.THEMES[theme]
+        if not palette["dark"]:
+            canvas.update({"backgroundColor": palette["background"], "color": palette["text"]})
+            canvas.setdefault("dashboard", {}).update({"themeColor": "light"})
+            canvas.setdefault("component", {}).setdefault("chartTitle", {}).update({"color": palette["text"]})
             return canvas
         canvas.update({
             "width": 1920,
@@ -48,8 +64,8 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             "backgroundImageEnable": False,
             "backgroundType": "backgroundColor",
             "background": "",
-            "backgroundColor": "#050B1A",
-            "color": "#EAF8FF",
+            "backgroundColor": palette["background"],
+            "color": palette["text"],
             "fontFamily": "Microsoft YaHei",
             "scale": 100,
             "scaleWidth": 100,
@@ -86,7 +102,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
     def _apply_component_theme(
         self, component: dict[str, Any], view_info: dict[str, Any], chart_type: str, theme: str
     ) -> None:
-        if theme != "neon-dark":
+        if not self.THEMES[theme]["dark"]:
             return
         component.setdefault("style", {}).update({
             "borderActive": True,
@@ -238,7 +254,9 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         title: str | None = None,
         y_aggregations: list[str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        template_dir = Path(__file__).resolve().parent.parent / "templates" / f"chart_{chart_type}"
+        adapter = chart_adapter(chart_type)
+        template_type = str(adapter["template"])
+        template_dir = Path(__file__).resolve().parent.parent / "templates" / f"chart_{template_type}"
         if not template_dir.exists():
             raise FileNotFoundError(f"Unsupported chart template: {chart_type}")
         template = (template_dir / "template.j2").read_text(encoding="utf-8")
@@ -268,12 +286,46 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 bind_field_metadata(view_info, field_id, dataset_ctx[f"YAXIS{suffix}_FIELD_METADATA"])
                 if y_aggregations and index < len(y_aggregations):
                     self._update_field_aggregation(view_info, field_id, y_aggregations[index])
+        if template_type == "table_info" and view_info.get("xAxis"):
+            prototype = view_info["xAxis"][0]
+            table_fields: list[dict[str, Any]] = []
+            for axis, names in (("XAXIS", x_names), ("YAXIS", y_names)):
+                for index, _name in enumerate(names):
+                    suffix = "" if index == 0 else str(index + 1)
+                    field_id = dataset_ctx.get(f"{axis}{suffix}_FIELD_ID")
+                    metadata = dataset_ctx.get(f"{axis}{suffix}_FIELD_METADATA")
+                    if not field_id or not metadata:
+                        continue
+                    item = copy.deepcopy(prototype)
+                    bind_field_metadata(item, str(item.get("id")), metadata)
+                    if axis == "YAXIS" and y_aggregations and index < len(y_aggregations):
+                        item["summary"] = y_aggregations[index]
+                    table_fields.append(item)
+            view_info["xAxis"] = table_fields
+            view_info["yAxis"] = []
         self._replace_template_names(view_info, x_names, y_names)
+        if chart_type == "flow-map":
+            if len(x_names) < 2:
+                raise ValueError("flow-map requires origin and destination fields in x_axis")
+            prototype = copy.deepcopy(view_info.get("xAxis", [{}])[0])
+            target_id = dataset_ctx.get("XAXIS2_FIELD_ID")
+            target_meta = dataset_ctx.get("XAXIS2_FIELD_METADATA")
+            if not target_id or not target_meta:
+                raise ValueError("flow-map destination field metadata is unavailable")
+            bind_field_metadata(prototype, str(prototype.get("id")), target_meta)
+            view_info["xAxisExt"] = [prototype]
 
         components = json.loads(payload.get("componentData", "[]"))
         if not components:
             raise ValueError(f"Template {chart_type} has no componentData")
         component = components[0]
+        native_type = native_chart_type(chart_type)
+        view_info["type"] = native_type
+        view_info["render"] = str(adapter.get("render") or view_info.get("render") or "antv")
+        component["innerType"] = native_type
+        component["icon"] = native_type
+        component["category"] = str(adapter.get("category") or component.get("category") or "base")
+        component["render"] = view_info["render"]
         if title:
             component.update({"name": title, "label": title})
         layout = layout.get("layout", layout)
@@ -376,30 +428,46 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         charts_config: List[Dict[str, Any]],
         busi_type: str = "dashboard",
         theme: str = "business-light",
+        canvas_config: dict[str, Any] | None = None,
+        interactions: dict[str, Any] | None = None,
         publish: bool = True,
         append_timestamp: bool = True,
     ) -> tuple[str, str]:
         if busi_type not in {"dashboard", "dataV"}:
             raise ValueError("busi_type must be dashboard or dataV")
-        if theme not in {"business-light", "neon-dark"}:
-            raise ValueError("theme must be business-light or neon-dark")
+        if theme not in self.THEMES:
+            raise ValueError(f"theme must be one of: {', '.join(self.THEMES)}")
         if not charts_config:
             raise ValueError("charts_config must not be empty")
+        unsupported = sorted({str(item.get("type")) for item in charts_config} - self.SUPPORTED_CHART_TYPES)
+        if unsupported:
+            raise ValueError(f"unsupported chart types: {', '.join(unsupported)}")
         board_name = f"{title}_{int(time.time())}" if append_timestamp else title
         base_template = Path(__file__).resolve().parent.parent / "templates" / "dashboard" / "base.json"
         canvas_style = json.loads(json.loads(base_template.read_text(encoding="utf-8"))["canvasStyleData"])
+        if canvas_config:
+            width = int(canvas_config.get("width") or canvas_style.get("width") or 1920)
+            height = int(canvas_config.get("height") or canvas_style.get("height") or 1080)
+            if width < 320 or height < 320 or width > 16384 or height > 16384:
+                raise ValueError("canvas width/height must be between 320 and 16384")
+            canvas_style.update({"width": width, "height": height})
+            if canvas_config.get("screen_adaptor"):
+                canvas_style["screenAdaptor"] = str(canvas_config["screen_adaptor"])
         canvas_style = self._apply_canvas_theme(canvas_style, theme)
+        interaction_plan = normalize_interactions(interactions)
 
         component_data: list[dict[str, Any]] = []
         canvas_view_info: dict[str, Any] = {}
         active_view_ids: list[str] = []
+        chart_view_ids = [self.rand_id() for _ in charts_config]
         planned_layouts = plan_smart_layouts(
             charts_config,
             canvas_width=int(canvas_style.get("width", 1920)),
             canvas_height=int(canvas_style.get("height", 1080)),
+            reserved_top_rows=4 if interaction_plan["filters"] and not any(item.get("layout") for item in charts_config) else 0,
         )
         for index, config in enumerate(charts_config):
-            view_id = self.rand_id()
+            view_id = chart_view_ids[index]
             active_view_ids.append(view_id)
             layout = config.get("layout") or planned_layouts[index]
             if busi_type == "dataV":
@@ -419,9 +487,31 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 y_aggregations=config.get("y_aggregations"),
             )
             self._apply_component_theme(component, view, config["type"], theme)
+            hierarchy_rule = next((item for item in interaction_plan["drill_hierarchies"] if isinstance(item, dict) and item.get("source") == config.get("title")), {})
+            drill_fields = config.get("drill_fields") or hierarchy_rule.get("fields") or []
+            if isinstance(drill_fields, list) and drill_fields:
+                drill_ctx = self.get_dataset_ctx(config["dataset_name"], drill_fields, [])
+                view["drill"] = True
+                view["drillFields"] = [drill_ctx[f"XAXIS{'' if pos == 0 else pos + 1}_FIELD_METADATA"] for pos in range(len(drill_fields))]
+            jump = config.get("jump") or next((item for item in interaction_plan["jumps"] if isinstance(item, dict) and item.get("source") == config.get("title")), None)
+            if isinstance(jump, dict) and jump.get("url"):
+                view["jumpActive"] = True
+                component.setdefault("events", {}).update({"checked": True, "type": "jump", "jump": {"value": str(jump["url"]), "type": str(jump.get("target") or "_blank")}})
             component["_dragId"] = index
             component_data.append(component)
             canvas_view_info[view_id] = view
+
+        if interaction_plan["filters"]:
+            dataset_name = str(charts_config[0]["dataset_name"])
+            filter_ctx = self.get_dataset_ctx(dataset_name, interaction_plan["filters"], [])
+            filter_fields = [filter_ctx[f"XAXIS{'' if pos == 0 else pos + 1}_FIELD_METADATA"] for pos in range(len(interaction_plan["filters"]))]
+            target_ids = [chart_view_ids[pos] for pos, item in enumerate(charts_config) if str(item.get("dataset_name")) == dataset_name]
+            query_id = self.rand_id()
+            query_component, query_view = build_query_component(query_id, str(filter_ctx["DATASET_GROUP_ID"]), filter_fields, target_ids, canvas_width=int(canvas_style.get("width", 1920)), canvas_height=int(canvas_style.get("height", 1080)))
+            query_component["_dragId"] = len(component_data)
+            component_data.append(query_component)
+            canvas_view_info[query_id] = query_view
+            active_view_ids.append(query_id)
 
         payload = {
             "id": None,
@@ -445,6 +535,13 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         if save_body.get("code") not in (None, 0):
             raise RuntimeError(f"saveCanvas failed: {save_body.get('msg')}")
         dashboard_id = str(save_body["data"])
+        if interaction_plan["auto_linkage"]:
+            for linkage in shared_linkages(charts_config, chart_view_ids, canvas_view_info):
+                linkage_response = self.client.post("/linkage/saveLinkage", {"dvId": dashboard_id, **linkage})
+                linkage_response.raise_for_status()
+                linkage_body = linkage_response.json()
+                if linkage_body.get("code") not in (None, 0):
+                    raise RuntimeError(f"saveLinkage failed: {linkage_body.get('msg')}")
         if publish:
             publish_response = self.client.post("/dataVisualization/updatePublishStatus", {
                 "id": dashboard_id,

@@ -274,6 +274,8 @@ def execute_solution(client: DataEaseClient, settings: Settings, spec: dict[str,
         visual_id, visual_url = engine.deploy_multi(
             str(visual_spec.get("title") or f"{manifest['name']}驾驶舱"), visual_spec["charts"],
             busi_type=visual_kind, theme=str(visual_spec.get("theme") or "neon-dark"),
+            canvas_config=visual_spec.get("canvas") if isinstance(visual_spec.get("canvas"), dict) else None,
+            interactions=visual_spec.get("interactions") if isinstance(visual_spec.get("interactions"), dict) else None,
             publish=False, append_timestamp=False,
         )
         visual_id = str(visual_id)

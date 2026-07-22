@@ -49,6 +49,7 @@ def plan_smart_layouts(
     *,
     canvas_width: int = 1920,
     canvas_height: int = 1080,
+    reserved_top_rows: int = 0,
 ) -> list[dict[str, int]]:
     """Plan semantic 72x36 layouts while preserving the caller's chart order."""
     items = list(charts)
@@ -60,7 +61,9 @@ def plan_smart_layouts(
     details = [index for index, role in enumerate(roles) if role == "detail"]
     analysis = [index for index, role in enumerate(roles) if role not in {"kpi", "detail"}]
 
-    cursor_y = 1
+    if reserved_top_rows < 0 or reserved_top_rows > 12:
+        raise ValueError("reserved_top_rows must be between 0 and 12")
+    cursor_y = 1 + reserved_top_rows
     if kpis:
         kpi_rows = (len(kpis) + 3) // 4
         heights = _split_height(min(12, max(5, kpi_rows * 5)), kpi_rows)
@@ -73,7 +76,8 @@ def plan_smart_layouts(
                 cursor_x += width
             cursor_y += heights[row]
 
-    detail_height = min(14, max(8, 36 // max(2, len(details) + 1))) if details else 0
+    available_rows = 36 - reserved_top_rows
+    detail_height = min(14, max(6, available_rows // max(2, len(details) + 1))) if details else 0
     detail_total = detail_height * len(details)
     remaining_height = max(1, 37 - cursor_y - detail_total)
 

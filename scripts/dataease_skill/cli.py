@@ -242,6 +242,8 @@ def _visual_create(
         spec["charts"],
         busi_type=str(spec.get("kind") or "dashboard"),
         theme=str(spec.get("theme") or "business-light"),
+        canvas_config=spec.get("canvas") if isinstance(spec.get("canvas"), dict) else None,
+        interactions=spec.get("interactions") if isinstance(spec.get("interactions"), dict) else None,
         publish=True,
         append_timestamp=False,
     )
@@ -253,6 +255,18 @@ def _visual_create(
             stage="verification",
             details={"id": str(dashboard_id), "status": detail.get("status")},
         )
+    try:
+        components = json.loads(detail.get("componentData") or "[]")
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise DataEaseError("资源创建后 componentData 无法解析", code="invalid_visual_payload", stage="verification") from exc
+    expected_filters = (spec.get("interactions") or {}).get("filters") if isinstance(spec.get("interactions"), dict) else []
+    query_count = sum(1 for item in components if isinstance(item, dict) and item.get("component") == "VQuery")
+    if expected_filters and query_count < 1:
+        raise DataEaseError("智能查询组件创建后回读缺失", code="query_component_missing", stage="verification")
+    linkage_summary: Any = None
+    if isinstance(spec.get("interactions"), dict) and spec["interactions"].get("linkage"):
+        version, adapter = adapter_for_client(client)
+        linkage_summary = client.data("GET", adapter.linkage_all_path(str(dashboard_id), "snapshot"))
     capture = None
     if not args.no_capture:
         capture = _capture(settings, str(dashboard_id), str(spec.get("kind") or "dashboard"), args.pixel)
@@ -263,6 +277,11 @@ def _visual_create(
         "url": url,
         "status": detail.get("status"),
         "capture": capture,
+        "verification": {
+            "component_count": len(components),
+            "query_component_count": query_count,
+            "linkages": linkage_summary,
+        },
     }
     audit_id = audit.write(
         "visual.create",

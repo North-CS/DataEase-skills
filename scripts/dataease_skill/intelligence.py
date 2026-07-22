@@ -5,12 +5,30 @@ from collections import defaultdict
 from typing import Any
 
 from .layout_planner import describe_layout_strategy, plan_smart_layouts
+from .chart_catalog import SUPPORTED_CHART_TYPES
 
 
 OHLC_PATTERN = re.compile(
     r"(open|开盘|close|收盘|high|最高|low|最低|volume|成交量|成交额|amount|turnover)",
     re.I,
 )
+
+DRILL_HIERARCHIES = (
+    ("大区", "省级行政区", "省", "城市", "区县", "门店"),
+    ("region", "province", "city", "district", "store"),
+    ("品类", "子品类", "商品"),
+    ("category", "subcategory", "product"),
+    ("部门", "团队", "员工"),
+)
+
+
+def _detect_drill_hierarchy(fields: list[str]) -> list[str]:
+    normalized = {str(item).strip().lower(): str(item) for item in fields}
+    for hierarchy in DRILL_HIERARCHIES:
+        matched = [normalized[name.lower()] for name in hierarchy if name.lower() in normalized]
+        if len(matched) >= 2:
+            return matched
+    return []
 GAUGE_PATTERN = re.compile(
     r"(current|当前|value|数值|score|得分|rate|比率|progress|进度)",
     re.I,
@@ -19,6 +37,7 @@ WATERFALL_PATTERN = re.compile(
     r"(金额|收入|支出|利润|成本|费用|亏损|盈利|amount|revenue|income|expense|cost|profit|loss)",
     re.I,
 )
+GEO_PATTERN = re.compile(r"(国家|大区|省|市|区县|地区|地域|region|province|city|district|country)", re.I)
 
 
 def _profiles(value: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -212,6 +231,17 @@ def build_visual_plan(
                     "business_definition_confirmed": False,
                 }
             )
+            charts.append(
+                {
+                    "type": "indicator",
+                    "title": _qualified_title(dataset_name, str(measure["display_name"]), multi),
+                    "dataset_name": str(dataset["id"]),
+                    "x_axis": [primary_dimension] if primary_dimension else identifiers[:1],
+                    "y_axis": [str(measure["name"])],
+                    "y_aggregations": [str(measure["aggregation"])],
+                    "intent": "kpi",
+                }
+            )
         if dates:
             charts.append(
                 {
@@ -224,9 +254,20 @@ def build_visual_plan(
                     "intent": "trend",
                 }
             )
+            if len(measures) > 1:
+                charts.append(
+                    {
+                        "type": "area-stack",
+                        "title": _qualified_title(dataset_name, f"{primary_measure}累计趋势", multi),
+                        "dataset_name": str(dataset["id"]),
+                        "x_axis": [dates[0]],
+                        "y_axis": measures[:3],
+                        "y_aggregations": measure_aggregations[:3],
+                        "intent": "trend",
+                    }
+                )
         if primary_dimension:
-            charts.append(
-                {
+            comparison_chart = {
                     "type": "bar",
                     "title": _qualified_title(dataset_name, f"按{primary_dimension}分析{primary_measure}", multi),
                     "dataset_name": str(dataset["id"]),
@@ -235,7 +276,24 @@ def build_visual_plan(
                     "y_aggregations": measure_aggregations[:2],
                     "intent": "comparison",
                 }
-            )
+            drill_hierarchy = _detect_drill_hierarchy(dimensions)
+            if drill_hierarchy:
+                comparison_chart["x_axis"] = [drill_hierarchy[0]]
+                comparison_chart["drill_fields"] = drill_hierarchy[1:]
+                recommendations.append(f"数据集“{dataset_name}”识别到高置信度钻取层级：{' → '.join(drill_hierarchy)}。")
+            charts.append(comparison_chart)
+            if GEO_PATTERN.search(primary_dimension):
+                charts.append(
+                    {
+                        "type": "map",
+                        "title": _qualified_title(dataset_name, f"{primary_dimension}空间分布", multi),
+                        "dataset_name": str(dataset["id"]),
+                        "x_axis": [primary_dimension],
+                        "y_axis": measures[:1],
+                        "y_aggregations": measure_aggregations[:1],
+                        "intent": "geospatial",
+                    }
+                )
         if current.get("sensitive_fields"):
             recommendations.append(f"发布前检查数据集“{dataset_name}”敏感字段的列权限与脱敏规则。")
         if not dates:
@@ -340,7 +398,7 @@ def build_visual_plan(
             recommendations.append("未发现可靠的跨数据集同名关联字段；当前方案仅在同一画布并列展示多个数据集。")
 
     filters = primary_dates[:1] + primary_dimensions[:2]
-    planned_layouts = plan_smart_layouts(charts)
+    planned_layouts = plan_smart_layouts(charts, reserved_top_rows=4 if filters else 0)
     for chart, layout in zip(charts, planned_layouts):
         chart["layout"] = layout
     return {
@@ -352,6 +410,7 @@ def build_visual_plan(
         "theme": "neon-dark" if busi_type == "dataV" else "business-light",
         "charts": charts,
         "layout_strategy": describe_layout_strategy(charts),
+        "supported_chart_types": sorted(SUPPORTED_CHART_TYPES),
         "interactions": {
             "filters": filters,
             "linkage": True,

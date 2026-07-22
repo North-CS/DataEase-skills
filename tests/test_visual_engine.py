@@ -9,6 +9,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from dataease_skill.visual_engine import MultiDataEaseChartEngine
+from dataease_skill.chart_catalog import SUPPORTED_CHART_TYPES
 
 
 class LayoutTests(unittest.TestCase):
@@ -31,6 +32,77 @@ class LayoutTests(unittest.TestCase):
         canvas = engine._apply_canvas_theme({"dashboard": {}, "component": {}}, "neon-dark")
         self.assertEqual(canvas["backgroundColor"], "#050B1A")
         self.assertEqual(canvas["dashboard"]["themeColor"], "dark")
+
+    def test_extended_theme_catalog(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        for theme in ("business-light", "minimal-light", "neon-dark", "deep-ocean", "dark-gold", "tech-blue"):
+            canvas = engine._apply_canvas_theme({"dashboard": {}, "component": {}}, theme)
+            self.assertTrue(canvas["backgroundColor"])
+
+    def test_common_chart_families_have_real_adapters(self):
+        expected = {
+            "bar", "bar-stack", "line", "area", "area-stack", "pie", "pie-donut",
+            "indicator", "table-info", "table-normal", "table-pivot", "t-heatmap",
+            "map", "bubble-map", "heat-map", "symbolic-map", "scatter", "funnel", "radar",
+        }
+        self.assertTrue(expected.issubset(SUPPORTED_CHART_TYPES))
+
+    def test_adapter_rewrites_native_type_and_renderer(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        engine.get_dataset_ctx = lambda *_args: {
+            "DATASET_GROUP_ID": "100", "XAXIS_FIELD_ID": "11", "XAXIS_DE_NAME": "f_region",
+            "XAXIS_FIELD_METADATA": {"id": "11", "name": "省", "dataeaseName": "f_region", "deType": 0},
+            "YAXIS_FIELD_ID": "22", "YAXIS_DE_NAME": "f_sales", "YAXIS_SERIES_ID": "22-yAxis",
+            "YAXIS_FIELD_METADATA": {"id": "22", "name": "销售额", "dataeaseName": "f_sales", "deType": 2},
+        }
+        component, view = engine.extract_chart_payload(
+            "indicator", "100", ["省"], ["销售额"], "9002",
+            {"x": 1, "y": 1, "sizeX": 18, "sizeY": 6}, y_aggregations=["sum"],
+        )
+        self.assertEqual(view["type"], "indicator")
+        self.assertEqual(view["render"], "custom")
+        self.assertEqual(component["innerType"], "indicator")
+
+    def test_every_catalog_adapter_renders_and_binds_fields(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        engine.get_dataset_ctx = lambda *_args: {
+            "DATASET_GROUP_ID": "100", "XAXIS_FIELD_ID": "11", "XAXIS_DE_NAME": "f_region",
+            "XAXIS_FIELD_METADATA": {"id": "11", "name": "省", "originName": "province", "dataeaseName": "f_region", "deType": 0},
+            "XAXIS2_FIELD_ID": "12", "XAXIS2_DE_NAME": "f_city",
+            "XAXIS2_FIELD_METADATA": {"id": "12", "name": "市", "originName": "city", "dataeaseName": "f_city", "deType": 0},
+            "YAXIS_FIELD_ID": "22", "YAXIS_DE_NAME": "f_sales", "YAXIS_SERIES_ID": "22-yAxis",
+            "YAXIS_FIELD_METADATA": {"id": "22", "name": "销售额", "originName": "sales", "dataeaseName": "f_sales", "deType": 2},
+        }
+        for index, chart_type in enumerate(sorted(SUPPORTED_CHART_TYPES), start=1):
+            with self.subTest(chart_type=chart_type):
+                x_fields = ["省", "市"] if chart_type == "flow-map" else ["省"]
+                component, view = engine.extract_chart_payload(
+                    chart_type, "100", x_fields, ["销售额"], str(9100 + index),
+                    {"x": 1, "y": 1, "sizeX": 24, "sizeY": 12}, y_aggregations=["sum"],
+                )
+                self.assertEqual(component["innerType"], view["type"])
+                self.assertTrue(_find_fields(view, "11"))
+                self.assertTrue(_find_fields(view, "22"))
+                if chart_type == "flow-map":
+                    self.assertTrue(_find_fields(view.get("xAxisExt", []), "12"))
+
+    def test_custom_4k_canvas_scales_datav_pixel_layout(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        engine.base_url = "http://example"
+        engine.client = _FakeVisualClient()
+        engine.rand_id = _sequential_ids()
+        engine.extract_chart_payload = _fake_extract_chart_payload
+        engine._apply_component_theme = lambda *_args: None
+        engine._detect_check_version = lambda: "2.10.25"
+        engine.deploy_multi(
+            "4K 大屏", [{"type": "line", "intent": "trend", "dataset_name": "1"}],
+            busi_type="dataV", publish=False, append_timestamp=False,
+            canvas_config={"width": 3840, "height": 2160},
+        )
+        canvas = json.loads(engine.client.saved_payload["canvasStyleData"])
+        component = json.loads(engine.client.saved_payload["componentData"])[0]
+        self.assertEqual((canvas["width"], canvas["height"]), (3840, 2160))
+        self.assertEqual((component["style"]["width"], component["style"]["height"]), (3840, 2160))
 
     def test_missing_optional_background_falls_back_to_theme_color(self):
         engine = object.__new__(MultiDataEaseChartEngine)
