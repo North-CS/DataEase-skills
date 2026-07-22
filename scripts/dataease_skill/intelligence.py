@@ -37,7 +37,15 @@ WATERFALL_PATTERN = re.compile(
     r"(金额|收入|支出|利润|成本|费用|亏损|盈利|amount|revenue|income|expense|cost|profit|loss)",
     re.I,
 )
-GEO_PATTERN = re.compile(r"(国家|大区|省|市|区县|地区|地域|region|province|city|district|country)", re.I)
+GEO_PATTERN = re.compile(r"(国家|大区|区域|省|市|区县|地区|地域|region|province|city|district|country)", re.I)
+STAGE_PATTERN = re.compile(r"(阶段|状态|流程|漏斗|stage|status|phase|funnel)", re.I)
+TEXT_PATTERN = re.compile(r"(关键词|标签|主题|搜索词|词语|keyword|tag|topic|word)", re.I)
+AUTO_PLANNABLE_TYPES = frozenset({
+    "indicator", "gauge", "line", "area-stack", "bar", "bar-horizontal", "waterfall",
+    "pie-donut", "radar", "treemap", "word-cloud", "table_info", "table-pivot",
+    "map", "bubble-map", "scatter", "funnel", "candle",
+})
+MAX_AUTO_CHARTS_PER_DATASET = 12
 
 
 def _profiles(value: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -210,11 +218,15 @@ def build_visual_plan(
         measure_aggregations = [str(item["aggregation"]) for item in measure_items]
         dates = _field_names(current, "dates")
         identifiers = _field_names(current, "identifiers")
+        profile_chart_start = len(charts)
         if not measures:
             recommendations.append(f"数据集“{dataset_name}”没有可识别的指标字段，未为其自动生成图表。")
             continue
         usable_profiles.append((current, measure_items))
         primary_dimension = dimensions[0] if dimensions else dates[0] if dates else identifiers[0] if identifiers else None
+        geo_dimension = next((name for name in dimensions if GEO_PATTERN.search(name)), None)
+        stage_dimension = next((name for name in dimensions if STAGE_PATTERN.search(name)), None)
+        text_dimension = next((name for name in dimensions if TEXT_PATTERN.search(name)), None)
         primary_measure = str(measure_items[0]["display_name"])
         if measure_items[0].get("derived_from_identifier"):
             recommendations.append(
@@ -282,18 +294,59 @@ def build_visual_plan(
                 comparison_chart["drill_fields"] = drill_hierarchy[1:]
                 recommendations.append(f"数据集“{dataset_name}”识别到高置信度钻取层级：{' → '.join(drill_hierarchy)}。")
             charts.append(comparison_chart)
-            if GEO_PATTERN.search(primary_dimension):
+            charts.append({
+                "type": "bar-horizontal", "title": _qualified_title(dataset_name, f"{primary_measure}排行", multi),
+                "dataset_name": str(dataset["id"]), "x_axis": [primary_dimension],
+                "y_axis": measures[:1], "y_aggregations": measure_aggregations[:1], "intent": "ranking",
+            })
+            if geo_dimension:
                 charts.append(
                     {
                         "type": "map",
-                        "title": _qualified_title(dataset_name, f"{primary_dimension}空间分布", multi),
+                        "title": _qualified_title(dataset_name, f"{geo_dimension}空间分布", multi),
                         "dataset_name": str(dataset["id"]),
-                        "x_axis": [primary_dimension],
+                        "x_axis": [geo_dimension],
                         "y_axis": measures[:1],
                         "y_aggregations": measure_aggregations[:1],
                         "intent": "geospatial",
                     }
                 )
+                if len(measures) > 1:
+                    charts.append({
+                        "type": "bubble-map", "title": _qualified_title(dataset_name, f"{geo_dimension}规模分布", multi),
+                        "dataset_name": str(dataset["id"]), "x_axis": [geo_dimension],
+                        "y_axis": measures[:2], "y_aggregations": measure_aggregations[:2], "intent": "geospatial",
+                    })
+            if stage_dimension:
+                charts.append({
+                    "type": "funnel", "title": _qualified_title(dataset_name, f"{stage_dimension}转化漏斗", multi),
+                    "dataset_name": str(dataset["id"]), "x_axis": [stage_dimension],
+                    "y_axis": measures[:1], "y_aggregations": measure_aggregations[:1], "intent": "funnel",
+                })
+            if text_dimension:
+                charts.append({
+                    "type": "word-cloud", "title": _qualified_title(dataset_name, f"{text_dimension}热词", multi),
+                    "dataset_name": str(dataset["id"]), "x_axis": [text_dimension],
+                    "y_axis": measures[:1], "y_aggregations": measure_aggregations[:1], "intent": "distribution",
+                })
+            if len(measures) >= 2:
+                charts.append({
+                    "type": "scatter", "title": _qualified_title(dataset_name, f"{measures[0]}与{measures[1]}关系", multi),
+                    "dataset_name": str(dataset["id"]), "x_axis": [primary_dimension],
+                    "y_axis": measures[:2], "y_aggregations": measure_aggregations[:2], "intent": "correlation",
+                })
+            if len(measures) >= 3:
+                charts.append({
+                    "type": "radar", "title": _qualified_title(dataset_name, f"{primary_dimension}多指标画像", multi),
+                    "dataset_name": str(dataset["id"]), "x_axis": [primary_dimension],
+                    "y_axis": measures[:5], "y_aggregations": measure_aggregations[:5], "intent": "profile",
+                })
+            if len(dimensions) >= 2:
+                charts.append({
+                    "type": "treemap", "title": _qualified_title(dataset_name, f"{dimensions[0]}层级构成", multi),
+                    "dataset_name": str(dataset["id"]), "x_axis": dimensions[:2],
+                    "y_axis": measures[:1], "y_aggregations": measure_aggregations[:1], "intent": "hierarchy",
+                })
         if current.get("sensitive_fields"):
             recommendations.append(f"发布前检查数据集“{dataset_name}”敏感字段的列权限与脱敏规则。")
         if not dates:
@@ -338,6 +391,12 @@ def build_visual_plan(
             })
             recommendations.append(f"数据集“{dataset_name}”识别到盈亏金额结构，已推荐瀑布图。")
 
+        profile_charts = charts[profile_chart_start:]
+        if len(profile_charts) > MAX_AUTO_CHARTS_PER_DATASET:
+            del charts[profile_chart_start:]
+            charts.extend(profile_charts[:MAX_AUTO_CHARTS_PER_DATASET])
+            recommendations.append(f"数据集“{dataset_name}”命中较多规则，已限制为 {MAX_AUTO_CHARTS_PER_DATASET} 个组件。")
+
     if not usable_profiles:
         raise ValueError("所选数据集中没有可识别的指标字段，无法自动规划图表")
 
@@ -360,7 +419,7 @@ def build_visual_plan(
     if primary_dimension:
         charts.append(
             {
-                "type": "pie",
+                "type": "pie-donut",
                 "title": _qualified_title(
                     str(primary_dataset.get("name") or primary_dataset["id"]),
                     f"{primary_dimension}构成",
@@ -389,6 +448,13 @@ def build_visual_plan(
             "intent": "detail",
         }
     )
+    if len(primary_dimensions) >= 2 and len(primary_measures) >= 2:
+        charts.append({
+            "type": "table-pivot", "title": "多维汇总分析",
+            "dataset_name": str(primary_dataset["id"]), "x_axis": primary_dimensions[:2],
+            "y_axis": primary_measures[:3], "y_aggregations": primary_measure_aggregations[:3],
+            "intent": "summary",
+        })
 
     relationships = _relationship_candidates(profiles)
     if multi:
@@ -411,6 +477,12 @@ def build_visual_plan(
         "charts": charts,
         "layout_strategy": describe_layout_strategy(charts),
         "supported_chart_types": sorted(SUPPORTED_CHART_TYPES),
+        "auto_plannable_chart_types": sorted(AUTO_PLANNABLE_TYPES),
+        "planning_policy": {
+            "max_profile_charts_per_dataset": MAX_AUTO_CHARTS_PER_DATASET,
+            "specialized_charts_require_semantic_match": True,
+            "explicit_only_types": sorted(SUPPORTED_CHART_TYPES - AUTO_PLANNABLE_TYPES),
+        },
         "interactions": {
             "filters": filters,
             "linkage": True,

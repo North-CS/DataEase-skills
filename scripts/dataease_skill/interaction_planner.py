@@ -8,11 +8,16 @@ def normalize_interactions(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {"filters": [], "auto_linkage": False, "drill_hierarchies": [], "jumps": []}
     filters = value.get("filters") or []
+    drill_rules = value.get("drill_hierarchies") if isinstance(value.get("drill_hierarchies"), list) else []
+    jump_rules = value.get("jumps") if isinstance(value.get("jumps"), list) else []
+    for rule in [*drill_rules, *jump_rules]:
+        if isinstance(rule, dict) and not rule.get("source") and rule.get("chart"):
+            rule["source"] = rule["chart"]
     return {
         "filters": [str(item) for item in filters if isinstance(item, (str, int)) and str(item).strip()][:4],
         "auto_linkage": bool(value.get("auto_linkage", value.get("linkage", False))),
-        "drill_hierarchies": value.get("drill_hierarchies") if isinstance(value.get("drill_hierarchies"), list) else [],
-        "jumps": value.get("jumps") if isinstance(value.get("jumps"), list) else [],
+        "drill_hierarchies": drill_rules,
+        "jumps": jump_rules,
     }
 
 

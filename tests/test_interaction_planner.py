@@ -39,6 +39,14 @@ class InteractionPlannerTests(unittest.TestCase):
         self.assertTrue(plan["auto_linkage"])
         self.assertEqual(plan["jumps"], [])
 
+    def test_chart_alias_is_normalized_for_drill_and_jump_rules(self):
+        plan = normalize_interactions({
+            "drill_hierarchies": [{"chart": "区域销售", "fields": ["省", "市"]}],
+            "jumps": [{"chart": "区域销售", "url": "https://example.invalid"}],
+        })
+        self.assertEqual(plan["drill_hierarchies"][0]["source"], "区域销售")
+        self.assertEqual(plan["jumps"][0]["source"], "区域销售")
+
 
 if __name__ == "__main__":
     unittest.main()

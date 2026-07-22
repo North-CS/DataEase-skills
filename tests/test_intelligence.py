@@ -104,6 +104,30 @@ class FieldProfileTests(unittest.TestCase):
         self.assertEqual(plan["kpi_candidates"][0]["aggregation"], "count_distinct")
         self.assertTrue(all(chart["y_aggregations"] == ["count_distinct"] for chart in plan["charts"]))
 
+    def test_rich_profile_expands_semantic_chart_selection_without_unbounded_growth(self):
+        profile = {
+            "dataset": {"id": "400", "name": "营销分析"},
+            "dimensions": [
+                {"name": "渠道"}, {"name": "省份"}, {"name": "转化阶段"}, {"name": "搜索关键词"},
+            ],
+            "dates": [{"name": "日期"}],
+            "identifiers": [],
+            "measures": [
+                {"name": "销售额", "recommended_aggregation": "sum"},
+                {"name": "订单量", "recommended_aggregation": "sum"},
+                {"name": "利润率", "recommended_aggregation": "avg"},
+            ],
+            "sensitive_fields": [],
+        }
+        plan = build_visual_plan(profile, "营销驾驶舱", "dataV")
+        types = {chart["type"] for chart in plan["charts"]}
+        self.assertTrue({
+            "indicator", "line", "area-stack", "bar-horizontal", "map", "bubble-map",
+            "funnel", "word-cloud", "scatter", "pie-donut", "table_info", "table-pivot",
+        }.issubset(types))
+        self.assertIn("radar", plan["auto_plannable_chart_types"])
+        self.assertEqual(plan["planning_policy"]["max_profile_charts_per_dataset"], 12)
+
 
 if __name__ == "__main__":
     unittest.main()
