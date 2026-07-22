@@ -9,7 +9,10 @@
 | 模块 | 能力 |
 |------|------|
 | 🔍 数据与分析 | 数据源/数据集盘点、SQL/多表模型、计算字段、参数、行列权限、数据画像、多数据集规划 |
-| 📈 仪表板与 DataV | 创建、组件级编辑、筛选联动、主题布局、发布、截图、PDF |
+| 📈 仪表板与 DataV | 创建、组件级编辑、筛选联动、6 套内置主题、发布、截图、PDF |
+| 🧠 智能图表规划 | 字段语义自动匹配图表类型（2度量→散点、3度量→雷达、阶段→漏斗等），每数据集预算 12 组件 |
+| 🔗 交互编排 | 同数据集图表联动、层级下钻、URL 跳转，跨数据集同名字段候选不自动关联 |
+| 🎨 图表类型 | 7 大类 30+ 种：指标/趋势/柱形/构成/表格/地图/关系，含 K 线图、仪表盘、瀑布图 |
 | 🔐 权限与迁移 | 用户/角色资源授权、可移植备份/恢复、跨环境 ID 映射和迁移 |
 | 🧩 扩展与编排 | 插件/数据库驱动生命周期，质量→指标→模型→大屏→权限→报告一站式流水线 |
 | 📋 数据填报 | 表单、任务和数据行的查询与安全变更 |
@@ -78,9 +81,12 @@ python scripts/dataease.py inventory scan
 python scripts/dataease.py dataset profile --dataset "销售数据"
 python scripts/dataease.py dataset preview --dataset "销售数据"
 
-# 智能图表与布局规划
+# 智能图表与布局规划（自动识别字段语义匹配图表类型）
 python scripts/dataease.py dataset plan --dataset "销售数据" --title "销售经营分析" --busi-type dataV
 python scripts/dataease.py dataset plan --dataset "销售" --dataset "目标" --dataset "库存" --title "经营驾驶舱" --busi-type dataV
+
+# 创建并自动发布 + 截图（--apply 一步完成）
+python scripts/dataease.py visual create --dataset "销售数据" --title "销售看板" --apply
 
 # 一站式方案
 python scripts/dataease.py solution plan --spec sales-solution.json
