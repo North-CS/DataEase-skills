@@ -115,7 +115,7 @@ python scripts/dataease.py visual autopilot --dataset "销售数据" --title "�
 
 `visual autopilot` 提供确定性的端到端规划入口。`compact` 最多 6 个组件，`standard` 最多 10 个，`rich` 最多 16 个，并始终尽量保留明细表。dry-run 返回完整计划、主题候选、纯文本质量评分与 `model_compatibility`；无多模态模型只需检查 `quality.ready=true` 后沿用 `plan_id` 执行。
 
-Visual spec 可选传入 `canvas.width/height/screen_adaptor`、`theme` 与 `interactions`。主题可使用内置名称或自定义对象；企业 Logo/背景图只在本地取色，文字对比度不足时自动修正。创建 dry-run 会输出三套 SVG 主题预览。规划器会按目标画布重新计算 DataV 像素坐标，并可创建日期/分类查询组件、同数据集筛选级联、同维度图表联动、层级下钻和 URL 跳转。`filter_cascades` 可显式声明顺序；省略时只自动识别明确的地域、商品和组织层级。跨数据集同名字段只作为候选关系，不自动建立级联或联动。主题字段和示例见 `references/visualization.md`。
+Visual spec 可选传入 `canvas.width/height/screen_adaptor/typography`、`theme` 与 `interactions`。主题可使用内置名称或自定义对象；企业 Logo/背景图只在本地取色，文字对比度不足时自动修正。创建 dry-run 会输出三套 SVG 主题预览。`constraint-v3` 根据每个组件的标题宽度、字段数、类别/系列/图例/行数、图表渲染特性和目标设备计算最小/理想尺寸，统一求解 Dashboard 与 DataV 布局、检测碰撞，再独立调整标题、指标、图例、坐标轴、标签和表格字号；缺少值域统计时降级使用字段元数据估算。显式用户约束优先于自动建议。规划器还可创建日期/分类查询组件、同数据集筛选级联、同维度图表联动、层级下钻和 URL 跳转。`filter_cascades` 可显式声明顺序；省略时自动识别并按语义层级排列明确的地域、商品和组织字段，不依赖数据集字段顺序。修改已有查询组件时使用 `visual patch` 的 `cascade_updates`，禁止直接写入裸 `cascade` JSON。跨数据集同名字段只作为候选关系，不自动建立级联或联动。主题、布局和排版字段见 `references/visualization.md`。
 
 内置主题为 `business-light`、`minimal-light`、`neon-dark`、`deep-ocean`、`dark-gold`、`tech-blue`、`chinese-red`、`government-blue`、`medical-health`、`energy-green`、`retail-vibrant`。它们同时作用于画布、组件背景、边框、文字和主色；也可通过主题对象或 `DATAEASE_BACKGROUND_IMAGE` 使用本地 Logo/背景图。
 

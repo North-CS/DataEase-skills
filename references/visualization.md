@@ -69,7 +69,7 @@ The `visual create` dry-run validates the theme and writes three self-contained 
 
 Dashboard and DataV use the same resolved theme contract. DataV additionally applies the palette to fixed-canvas component borders, indicator values/names, map series, line/area series, pie labels and legends, table headers/cells, axes, tooltips and VQuery controls. Explicit DataV canvas dimensions remain authoritative and every smart-grid layout is converted to matching pixels. A transient empty preview caused by an interrupted/chunked frontend response receives one bounded retry; a second failure, a mounted-but-invalid canvas, missing query controls or failed chart-data call still fails verification and triggers compensating cleanup during create.
 
-`interactions.filters` creates a real `VQuery` component bound to authoritative dataset-field metadata. Its conditions carry the complete dataset field catalog and its component envelope includes DataEase's native visibility, category, event and background fields. `filter_cascades` declares ordered, same-dataset query cascades; when omitted or set to `"auto"`, the planner safely infers adjacent geography, product and organization chains such as 大区→省→市. Set it to `false` to force parallel filters. Custom business hierarchies must be explicit. The generated native cascade DTO binds each level to its real query-condition and field IDs.
+`interactions.filters` creates a real `VQuery` component bound to authoritative dataset-field metadata. Its conditions carry the complete dataset field catalog and its component envelope includes DataEase's native visibility, category, event and background fields. `filter_cascades` declares ordered, same-dataset query cascades; when omitted or set to `"auto"`, the planner safely groups and orders unambiguous geography, product and organization hierarchy fields such as 大区→省→市, independent of their source-field order or adjacency. Set it to `false` to force parallel filters. Custom business hierarchies must be explicit. The generated native cascade DTO binds each level to its real query-condition and field IDs.
 
 Query styling is background-aware. The planner calculates the canvas background luminance and writes a complete native `VQuery.customStyle.component`: dark canvases receive light labels/placeholders, translucent dark inputs and high-contrast borders; light canvases receive dark labels and white inputs. The query button inherits the active theme accent.
 
@@ -77,7 +77,40 @@ Browser verification requires both a visible `.v-query-container` and at least t
 
 `dataset plan` can emit a v2 spec from several datasets. Each chart still binds to one DataEase dataset; `dataset_relationships` are review candidates, not executed joins. The semantic layout planner classifies KPI, trend, composition, ranking, comparison and detail components. It places KPI cards first, gives trends more width, uses composition charts as companions and reserves full-width bottom rows for detail tables. Dashboard uses the generated responsive 72×36 grid; DataV also receives matching canvas pixels. Custom `layout` values remain authoritative, and grid-only DataV layouts are completed without replacing explicit pixels.
 
-High-density dashboards are not compressed into an unreadable 1080-pixel canvas. When neither an explicit canvas nor explicit component layouts are supplied, semantic-v2 estimates the required height from KPI, analytical and detail rows and creates a vertically expanded dashboard. Capture defaults to the saved canvas dimensions, so a 1920×1440 dashboard is validated at 1920×1440 rather than scaled into 1920×1080. Explicit canvas dimensions remain authoritative for both light and dark themes; fixed-screen DataV does not receive dashboard scrolling behavior.
+High-density dashboards are not compressed into an unreadable 1080-pixel canvas. `constraint-v3` estimates each component's minimum/preferred/maximum width and preferred height from its rendered title width, axes, dimensions, measures and optional `data_density.category_count/series_count/legend_items/row_count`. It then packs the complete 72×36 grid, allocates row height by content cost and rejects collisions or out-of-bounds geometry. Missing preview statistics are explicitly treated as a metadata estimate. When no explicit dashboard height is supplied, the saved dashboard grows vertically; capture uses that saved size. DataV keeps its fixed target resolution and fails machine-readable quality readiness when the requested component count cannot meet the minimum readable pixel height.
+
+Typography uses the same component geometry instead of one canvas-wide font size. Every chart receives an independent title, legend, axis, label, indicator and table-cell budget. Long titles are compacted for display while the full title is retained in title metadata. User intent remains authoritative:
+
+```json
+{
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "typography": {
+      "mode": "presentation",
+      "scale": 1.1,
+      "compact_titles": true
+    }
+  },
+  "charts": [
+    {
+      "type": "bar",
+      "data_density": {
+        "category_count": 24,
+        "series_count": 4,
+        "legend_items": 4
+      },
+      "layout_constraints": {
+        "min_width": 36,
+        "preferred_width": 48,
+        "preferred_height": 300
+      }
+    }
+  ]
+}
+```
+
+Use `typography.mode` values `auto`, `dense`, `compact` or `presentation`; optional `scale` is bounded to `0.75–1.5`. A per-chart `typography` object overrides the canvas policy. Do not invent density numbers when preview data is unavailable: omit `data_density` and let the solver report `metadata-estimate`.
 
 The planner classifies ID/code fields as identifiers instead of summable measures. Identifier-only datasets use `count_distinct` as an explicit fallback, while rate, ratio, percentage and average fields prefer `avg`; each chart carries aligned `y_aggregations`, and the visual engine writes those values into the DataEase view DTO. All generated KPI definitions remain candidates until their business meaning and aggregation are confirmed.
 
@@ -93,7 +126,7 @@ Automatic linkage is limited to views from the same dataset with a common dimens
 
 ## Editing an existing resource
 
-Use `visual inspect` to obtain real component/view IDs and field bindings, then `visual patch` for component geometry, style, visibility, view filters/styles, axis field replacement and canvas theme/layout. The patch engine preserves all unspecified canvas data, blocks identity-field overwrites, resolves replacement fields from DataEase metadata, snapshots the original resource and rejects stale plans. Use `visual linkage` for the separate server-side linkage DTO lifecycle. Full examples are in [advanced.md](advanced.md).
+Use `visual inspect` to obtain real component/view IDs and field bindings, then `visual patch` for component geometry, style, visibility, view filters/styles, axis field replacement, VQuery `cascade_updates` and canvas theme/layout. The patch engine preserves all unspecified canvas data, blocks identity-field overwrites, resolves replacement fields from DataEase metadata, rebuilds cascade compound IDs from current conditions, snapshots the original resource and rejects stale plans. Never patch raw `cascade` JSON. Use `visual linkage` for the separate server-side linkage DTO lifecycle. Full examples are in [advanced.md](advanced.md).
 
 ## Selection rules
 
