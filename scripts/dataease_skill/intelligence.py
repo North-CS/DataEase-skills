@@ -7,6 +7,7 @@ from typing import Any
 from .layout_planner import describe_layout_strategy, plan_smart_layouts
 from .chart_catalog import SUPPORTED_CHART_TYPES
 from .design_inspiration import apply_design_inspiration
+from .interaction_planner import infer_filter_cascades
 
 
 OHLC_PATTERN = re.compile(
@@ -468,6 +469,7 @@ def build_visual_plan(
     planned_layouts = plan_smart_layouts(charts, reserved_top_rows=4 if filters else 0)
     for chart, layout in zip(charts, planned_layouts):
         chart["layout"] = layout
+    filter_cascades = infer_filter_cascades(filters)
     spec = {
         "schema_version": 2,
         "kind": busi_type,
@@ -486,6 +488,7 @@ def build_visual_plan(
         },
         "interactions": {
             "filters": filters,
+            "filter_cascades": filter_cascades,
             "linkage": True,
             "cross_dataset_linkage_requires_confirmation": bool(multi),
         },

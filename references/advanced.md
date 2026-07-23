@@ -50,6 +50,12 @@ python scripts/dataease.py visual inspect --resource-id 123 --busi-type dataV
       "aggregation": "sum"
     }
   ],
+  "cascade_updates": [
+    {
+      "id": "query-component-id",
+      "chains": [["大区", "省级行政区", "城市"]]
+    }
+  ],
   "theme": {
     "backgroundColor": "#050816",
     "dashboard": {"showGrid": false, "gapSize": 8}
@@ -62,7 +68,7 @@ python scripts/dataease.py visual patch --spec visual-patch.json
 python scripts/dataease.py visual patch --spec visual-patch.json --apply --plan-id plan-xxxxxxxx
 ```
 
-The patch allowlist prevents changing component/view identities. Field replacement resolves the real target field metadata instead of inventing IDs and is intentionally limited to the view's current dataset. To rebind a whole chart to another dataset, use one `view_updates` patch containing the new `tableId` and complete axis arrays from the target version. `visual patch` is L2, snapshots the original canvas, binds the full spec digest and rejects stale targets.
+The patch allowlist prevents changing component/view identities. Field replacement resolves the real target field metadata instead of inventing IDs and is intentionally limited to the view's current dataset. `cascade_updates` accepts explicit condition-name/ID chains or `"auto"` and rebuilds DataEase's native compound dataset/query/field IDs from the current VQuery conditions. Raw `cascade` JSON in `component_updates` is rejected because stale condition IDs can be stored successfully while remaining ineffective in the frontend. To rebind a whole chart to another dataset, use one `view_updates` patch containing the new `tableId` and complete axis arrays from the target version. `visual patch` is L2, snapshots the original canvas, binds the full spec digest and rejects stale targets.
 
 Editing a published resource updates its working canvas; publish/unpublish remains a separate `visual publish` plan so a component edit never becomes externally visible implicitly.
 

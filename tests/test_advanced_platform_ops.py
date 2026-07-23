@@ -201,6 +201,49 @@ class AdvancedPlatformTests(unittest.TestCase):
                                  {"component_updates": [{"id": "11", "patch": {"id": "99"}}]})
         self.assertEqual(caught.exception.code, "unsafe_patch")
 
+    def test_visual_patch_rebuilds_query_cascade_from_current_conditions(self) -> None:
+        conditions = [
+            {
+                "id": "q-province", "name": "省级行政区",
+                "field": {"id": "f-province"}, "dataset": {"id": "200"},
+            },
+            {
+                "id": "q-region", "name": "大区",
+                "field": {"id": "f-region"}, "dataset": {"id": "200"},
+            },
+        ]
+        detail = {
+            "componentData": json.dumps([{
+                "id": "query-1", "component": "VQuery",
+                "propValue": conditions, "cascade": [],
+            }]),
+            "canvasStyleData": "{}",
+            "canvasViewInfo": {"query-1": {"id": "query-1", "type": "VQuery"}},
+        }
+        spec = {"cascade_updates": [{"id": "query-1", "chains": "auto"}]}
+        patched, changes = patch_visual_payload(VisualClient(), detail, spec)
+        cascade = json.loads(patched["componentData"])[0]["cascade"][0]
+        self.assertEqual(
+            [item["datasetId"] for item in cascade],
+            ["200--q-region--f-region", "200--q-province--f-province"],
+        )
+        self.assertEqual(changes[0]["action"], "set-query-cascade")
+        verify_visual_patch(patched, patched, spec, "before")
+
+    def test_visual_patch_rejects_raw_cascade_json(self) -> None:
+        detail = {
+            "componentData": '[{"id":"query-1","component":"VQuery"}]',
+            "canvasStyleData": "{}",
+            "canvasViewInfo": {},
+        }
+        with self.assertRaises(DataEaseError) as caught:
+            patch_visual_payload(
+                VisualClient(),
+                detail,
+                {"component_updates": [{"id": "query-1", "patch": {"cascade": []}}]},
+            )
+        self.assertEqual(caught.exception.code, "unsafe_patch")
+
     def test_visual_restore_remaps_view_ids_and_linkage_pairs(self) -> None:
         payload = {
             "componentData": '[{"id":"11","component":"UserView"}]',

@@ -57,6 +57,12 @@ class InteractionPlannerTests(unittest.TestCase):
             [["大区", "省级行政区", "城市"]],
         )
 
+    def test_cascade_inference_is_independent_of_field_order_and_adjacency(self):
+        self.assertEqual(
+            infer_filter_cascades(["省级行政区", "统计月份", "大区"]),
+            [["大区", "省级行政区"]],
+        )
+
     def test_explicit_filter_cascade_is_normalized(self):
         plan = normalize_interactions({
             "filters": ["品牌", "系列", "型号"],

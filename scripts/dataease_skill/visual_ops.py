@@ -14,6 +14,7 @@ from .client import DataEaseClient
 from .config import Settings
 from .errors import DataEaseError
 from .field_binding import FIELD_METADATA_KEYS
+from .interaction_planner import build_native_cascades
 from .redact import redact_configuration
 from .safety import PlanStore
 from .versioning import adapter_for_client
@@ -23,7 +24,7 @@ COMPONENT_PATCH_KEYS = {
     "x", "y", "sizeX", "sizeY", "name", "label", "style", "matrixStyle",
     "commonBackground", "isShow", "dashboardHidden", "linkage", "linkageFilters",
     "events", "actionSelection", "carousel", "propValue", "render", "category",
-    "dragging", "resizing", "show", "cascade",
+    "dragging", "resizing", "show",
 }
 VIEW_PATCH_KEYS = {
     "title", "tableId", "type", "render", "resultMode", "resultCount", "customAttr",
@@ -175,6 +176,44 @@ def patch_visual_payload(client: DataEaseClient, detail: dict[str, Any], spec: d
         _deep_merge(component, item["patch"])
         changes.append({"action": "patch-component", "id": str(item["id"]), "fields": sorted(item["patch"])})
 
+    for item in spec.get("cascade_updates", []):
+        if not isinstance(item, dict) or not item.get("id") or "chains" not in item:
+            raise DataEaseError(
+                "cascade_updates 每项需要查询组件 id 和 chains",
+                code="invalid_spec",
+                stage="input",
+            )
+        component = _select(components, item["id"], "查询组件")
+        if component.get("component") != "VQuery":
+            raise DataEaseError(
+                "级联只能应用于 VQuery 查询组件",
+                code="invalid_component_type",
+                stage="visualization",
+                details={"id": str(item["id"]), "component": component.get("component")},
+            )
+        conditions = component.get("propValue")
+        if not isinstance(conditions, list) or len(conditions) < 2:
+            raise DataEaseError(
+                "查询组件至少需要两个有效条件才能设置级联",
+                code="invalid_query_component",
+                stage="visualization",
+                details={"id": str(item["id"])},
+            )
+        try:
+            component["cascade"] = build_native_cascades(conditions, item["chains"])
+        except ValueError as exc:
+            raise DataEaseError(
+                str(exc),
+                code="invalid_cascade",
+                stage="input",
+                details={"id": str(item["id"])},
+            ) from exc
+        changes.append({
+            "action": "set-query-cascade",
+            "id": str(item["id"]),
+            "chains": len(component["cascade"]),
+        })
+
     for item in spec.get("view_updates", []):
         if not isinstance(item, dict) or not item.get("id") or not isinstance(item.get("patch"), dict):
             raise DataEaseError("view_updates 每项需要 id 和 patch", code="invalid_spec", stage="input")
@@ -257,6 +296,19 @@ def verify_visual_patch(after: dict[str, Any], expected: dict[str, Any], spec: d
     for item in spec.get("component_updates", []):
         component = _select(components, item["id"], "组件")
         _patch_matches(component, item["patch"], f"component[{item['id']}]", errors)
+    for item in spec.get("cascade_updates", []):
+        component = _select(components, item["id"], "查询组件")
+        expected_component = _select(
+            _decode_json(expected.get("componentData"), "componentData", []),
+            item["id"],
+            "查询组件",
+        )
+        _patch_matches(
+            component.get("cascade"),
+            expected_component.get("cascade"),
+            f"component[{item['id']}].cascade",
+            errors,
+        )
     for item in spec.get("view_updates", []):
         view = views.get(str(item["id"]))
         if not isinstance(view, dict):

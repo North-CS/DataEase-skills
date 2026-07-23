@@ -84,8 +84,8 @@ def query_style_for_background(background: str, accent: str = "#3370FF") -> dict
 
 
 def infer_filter_cascades(filters: list[str]) -> list[list[str]]:
-    """Infer only adjacent, unambiguous hierarchy runs from the requested filter order."""
-    positions: list[tuple[str, int] | None] = []
+    """Infer unambiguous hierarchy chains without depending on source-field order."""
+    positions: list[tuple[str, str, int] | None] = []
     for field in filters:
         key = _semantic_key(field)
         matches: list[tuple[str, int]] = []
@@ -93,23 +93,82 @@ def infer_filter_cascades(filters: list[str]) -> list[list[str]]:
             for rank, aliases in enumerate(levels):
                 if key in {_semantic_key(alias) for alias in aliases}:
                     matches.append((family, rank))
-        positions.append(matches[0] if len(matches) == 1 else None)
+        positions.append((field, *matches[0]) if len(matches) == 1 else None)
+
+    by_family: dict[str, list[tuple[int, str]]] = {}
+    for position in positions:
+        if position is None:
+            continue
+        field, family, rank = position
+        by_family.setdefault(family, []).append((rank, field))
 
     cascades: list[list[str]] = []
-    current: list[str] = []
-    previous: tuple[str, int] | None = None
-    for index, (field, position) in enumerate(zip(filters, positions)):
-        if position and previous and position[0] == previous[0] and position[1] > previous[1]:
-            if not current:
-                current = [filters[index - 1]]
-            current.append(field)
-        else:
-            if len(current) >= 2:
-                cascades.append(current)
-            current = []
-        previous = position
-    if len(current) >= 2:
-        cascades.append(current)
+    for matched in by_family.values():
+        ranks = [rank for rank, _ in matched]
+        if len(matched) < 2 or len(set(ranks)) != len(ranks):
+            continue
+        cascades.append([field for _, field in sorted(matched)])
+    return cascades
+
+
+def build_native_cascades(
+    conditions: list[dict[str, Any]],
+    cascade_chains: list[list[str]] | str | None,
+) -> list[list[dict[str, Any]]]:
+    """Build DataEase VQuery cascade DTOs from the component's current conditions."""
+    if cascade_chains in (None, "auto"):
+        cascade_chains = infer_filter_cascades([
+            str(item.get("name") or "") for item in conditions
+        ])
+    if not isinstance(cascade_chains, list):
+        raise ValueError("cascade chains must be a list or 'auto'")
+
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    by_id: dict[str, dict[str, Any]] = {}
+    for condition in conditions:
+        by_name.setdefault(str(condition.get("name") or ""), []).append(condition)
+        by_id[str(condition.get("id") or "")] = condition
+
+    cascades: list[list[dict[str, Any]]] = []
+    for chain_index, chain in enumerate(cascade_chains):
+        if not isinstance(chain, list) or len(chain) < 2:
+            raise ValueError("each cascade chain must contain at least two conditions")
+        resolved: list[dict[str, Any]] = []
+        for selector in chain:
+            selector_text = str(selector)
+            condition = by_id.get(selector_text)
+            if condition is None:
+                matches = by_name.get(selector_text, [])
+                if len(matches) != 1:
+                    raise ValueError(f"cascade condition is missing or ambiguous: {selector_text}")
+                condition = matches[0]
+            resolved.append(condition)
+        if len({str(item.get("id")) for item in resolved}) != len(resolved):
+            raise ValueError("cascade chain contains duplicate conditions")
+
+        dataset_ids = {
+            str((item.get("dataset") or {}).get("id") or "") for item in resolved
+        }
+        if "" in dataset_ids or len(dataset_ids) != 1:
+            raise ValueError("automatic cascades require all conditions to use one dataset")
+        dataset_id = next(iter(dataset_ids))
+        native_chain: list[dict[str, Any]] = []
+        for position, condition in enumerate(resolved):
+            field = condition.get("field") if isinstance(condition.get("field"), dict) else {}
+            field_id = str(field.get("id") or condition.get("displayId") or "")
+            condition_id = str(condition.get("id") or "")
+            if not field_id or not condition_id:
+                raise ValueError("cascade condition lacks an authoritative condition or field id")
+            native_chain.append({
+                "datasetId": f"{dataset_id}--{condition_id}--{field_id}",
+                "fieldId": "",
+                "placeholder": "第一个条件" if position == 0 else "需上一个使用同一数据集的条件",
+                "id": f"{condition_id}-cascade-{chain_index + 1}-{position + 1}",
+                "selectValue": [],
+                "defaultValueFirstItem": False,
+                "currentSelectValue": [],
+            })
+        cascades.append(native_chain)
     return cascades
 
 
@@ -201,24 +260,7 @@ def build_query_component(
             "auto": False,
             "cascade": None,
         })
-    condition_by_name = {str(item["name"]): item for item in conditions}
-    cascades: list[list[dict[str, Any]]] = []
-    for chain_index, chain in enumerate(cascade_chains or []):
-        chain_conditions = [condition_by_name.get(str(name)) for name in chain]
-        if len(chain_conditions) < 2 or any(item is None for item in chain_conditions):
-            continue
-        cascades.append([
-            {
-                "datasetId": f"{dataset_id}--{condition['id']}--{condition['field']['id']}",
-                "fieldId": "",
-                "placeholder": "第一个条件" if position == 0 else "需上一个使用同一数据集的条件",
-                "id": f"{component_id}9{chain_index + 1}{position + 1}",
-                "selectValue": [],
-                "defaultValueFirstItem": False,
-                "currentSelectValue": [],
-            }
-            for position, condition in enumerate(chain_conditions)
-        ])
+    cascades = build_native_cascades(conditions, cascade_chains or [])
 
     query_style = query_style_for_background(background_color, accent_color)
     dark_query = str(query_style["labelColor"]).upper() == "#EAF7FF"
