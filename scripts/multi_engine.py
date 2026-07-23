@@ -9,13 +9,14 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
-from dataease_skill.layout_planner import plan_smart_layouts, recommended_dashboard_height
+from dataease_skill.layout_planner import plan_smart_layouts, recommended_dashboard_height, validate_layouts
 from dataease_skill.field_binding import bind_field_metadata
 from dataease_skill.chart_catalog import (
     SUPPORTED_CHART_TYPES, apply_native_chart_defaults, chart_adapter, native_chart_type,
 )
 from dataease_skill.interaction_planner import build_query_component, normalize_interactions, shared_linkages
 from dataease_skill.theme_engine import BUILTIN_THEMES, color_with_alpha, resolve_theme
+from dataease_skill.visual_typography import responsive_typography
 
 from engine import DataEaseChartEngine
 
@@ -101,7 +102,8 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         return canvas
 
     def _apply_component_theme(
-        self, component: dict[str, Any], view_info: dict[str, Any], chart_type: str, theme: Any
+        self, component: dict[str, Any], view_info: dict[str, Any], chart_type: str, theme: Any,
+        typography: dict[str, Any] | None = None,
     ) -> None:
         palette = self._theme(theme)
         if not palette["dark"]:
@@ -129,6 +131,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 "tableItemBgColor": palette["background"],
                 "tableFontColor": palette["text"],
             })
+            self._apply_responsive_typography(component, view_info, chart_type, typography)
             return
         component.setdefault("style", {}).update({
             "borderActive": True,
@@ -216,6 +219,65 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             axis.setdefault("splitLine", {}).setdefault("lineStyle", {}).update({
                 "color": "rgba(122,184,224,0.16)", "width": 1
             })
+        self._apply_responsive_typography(component, view_info, chart_type, typography)
+
+    @staticmethod
+    def _apply_responsive_typography(
+        component: dict[str, Any], view_info: dict[str, Any], chart_type: str,
+        policy: dict[str, Any] | None = None,
+    ) -> None:
+        style = component.get("style") if isinstance(component.get("style"), dict) else {}
+        dimensions = sum(
+            len(view_info.get(axis) or []) for axis in ("xAxis", "xAxisExt")
+            if isinstance(view_info.get(axis), list)
+        )
+        measures = sum(
+            len(view_info.get(axis) or [])
+            for axis in ("yAxis", "yAxisExt", "extStack", "extBubble", "extLabel")
+            if isinstance(view_info.get(axis), list)
+        )
+        typography = responsive_typography(
+            chart_type,
+            view_info.get("title"),
+            width=int(style.get("width") or 0),
+            height=int(style.get("height") or 0),
+            dimension_count=dimensions,
+            measure_count=measures,
+            policy=policy,
+        )
+        full_title = typography["full_title"]
+        view_info["title"] = typography["display_title"]
+        custom_style = view_info.setdefault("customStyle", {})
+        custom_style.setdefault("text", {}).update({
+            "show": True,
+            "fontSize": typography["title_font_size"],
+            "remarkShow": False,
+            "remark": full_title,
+        })
+        custom_style.setdefault("legend", {}).update({
+            "show": typography["legend_show"],
+            "fontSize": typography["legend_font_size"],
+        })
+        for axis_name in ("xAxis", "yAxis", "yAxisExt", "misc"):
+            axis = custom_style.setdefault(axis_name, {})
+            axis["fontSize"] = typography["axis_font_size"]
+            axis.setdefault("axisLabel", {})["fontSize"] = typography["axis_font_size"]
+        custom_attr = view_info.setdefault("customAttr", {})
+        custom_attr.setdefault("label", {})["fontSize"] = typography["label_font_size"]
+        if chart_type == "indicator":
+            custom_attr.setdefault("indicator", {})["fontSize"] = typography["indicator_font_size"]
+            custom_attr.setdefault("indicatorName", {})["fontSize"] = typography["indicator_name_font_size"]
+        custom_attr.setdefault("tableHeader", {}).update({
+            "tableTitleFontSize": typography["label_font_size"],
+            "tableTitleHeight": max(28, typography["label_font_size"] * 2 + 8),
+        })
+        custom_attr.setdefault("tableCell", {}).update({
+            "tableItemFontSize": typography["label_font_size"],
+            "tableItemHeight": max(28, typography["label_font_size"] * 2 + 8),
+        })
+        background = component.get("commonBackground")
+        if isinstance(background, dict):
+            background.setdefault("innerPadding", {})["top"] = typography["inner_padding_top"]
 
     @staticmethod
     def _flatten_params(value: dict[str, Any]) -> dict[str, Any]:
@@ -491,7 +553,8 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         reserved_top_rows = (
             4 if interaction_plan["filters"] and not any(item.get("layout") for item in charts_config) else 0
         )
-        if busi_type == "dashboard" and not canvas_config and not any(item.get("layout") for item in charts_config):
+        explicit_canvas_height = bool(canvas_config and canvas_config.get("height"))
+        if busi_type == "dashboard" and not explicit_canvas_height and not any(item.get("layout") for item in charts_config):
             canvas_style["height"] = recommended_dashboard_height(
                 charts_config,
                 reserved_top_rows=reserved_top_rows,
@@ -508,6 +571,15 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             canvas_height=int(canvas_style.get("height", 1080)),
             reserved_top_rows=reserved_top_rows,
         )
+        effective_grid_layouts = [
+            dict((config.get("layout") or planned_layouts[index]).get(
+                "layout", config.get("layout") or planned_layouts[index],
+            ))
+            for index, config in enumerate(charts_config)
+        ]
+        grid_issues = validate_layouts(effective_grid_layouts)
+        if grid_issues:
+            raise ValueError(f"chart layouts overlap or exceed the 72x36 canvas: {grid_issues[:3]}")
         for index, config in enumerate(charts_config):
             view_id = chart_view_ids[index]
             active_view_ids.append(view_id)
@@ -528,7 +600,15 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 title=config.get("title"),
                 y_aggregations=config.get("y_aggregations"),
             )
-            self._apply_component_theme(component, view, config["type"], theme)
+            typography_policy = (
+                config.get("typography")
+                if isinstance(config.get("typography"), dict)
+                else (canvas_config or {}).get("typography")
+            )
+            self._apply_component_theme(
+                component, view, config["type"], theme,
+                typography_policy if isinstance(typography_policy, dict) else None,
+            )
             hierarchy_rule = next((item for item in interaction_plan["drill_hierarchies"] if isinstance(item, dict) and item.get("source") == config.get("title")), {})
             drill_fields = config.get("drill_fields") or hierarchy_rule.get("fields") or []
             if isinstance(drill_fields, list) and drill_fields:
