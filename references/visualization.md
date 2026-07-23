@@ -81,6 +81,8 @@ High-density dashboards are not compressed into an unreadable 1080-pixel canvas.
 
 Visual hierarchy is also deterministic. Autopilot limits headline KPI cards, preserves at most two detail-oriented components, balances analytical roles and keeps dataset identity in `source_label` instead of repeating long dataset names in every visible title. The quality gate rejects excessive KPI density, repeated titles, too many detail tables and widespread long titles. On dense dark canvases, component borders, corner radius, padding and glass effects are automatically softened so decoration does not compete with the data.
 
+Field channels are adapter-driven rather than limited by captured template placeholders. Multi-series bar, line, area, scatter and radar charts dynamically construct every declared `y_axis` field; candlestick charts preserve four OHLC measures. Pivot tables keep dimensions in `xAxis` and measures in `yAxis`, while normal detail tables intentionally flatten columns. Bubble maps place the second measure in `extBubble`. Every adapter declares its supported measure count, and payload creation fails when a field is unsupported or missing from the final native channel instead of silently dropping it.
+
 Typography uses the same component geometry instead of one canvas-wide font size. Every chart receives an independent title, legend, axis, label, indicator and table-cell budget. Long titles are compacted for display while the full title is retained in title metadata. User intent remains authoritative:
 
 ```json

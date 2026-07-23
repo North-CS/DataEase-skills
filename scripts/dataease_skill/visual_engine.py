@@ -378,6 +378,12 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         y_aggregations: list[str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         adapter = chart_adapter(chart_type)
+        max_y_fields = int(adapter.get("max_y_fields") or 1)
+        if len(y_names) > max_y_fields:
+            raise ValueError(
+                f"{chart_type} supports at most {max_y_fields} y_axis fields; "
+                f"received {len(y_names)}"
+            )
         template_type = str(adapter["template"])
         template_dir = Path(__file__).resolve().parents[2] / "templates" / f"chart_{template_type}"
         if not template_dir.exists():
@@ -409,7 +415,38 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 bind_field_metadata(view_info, field_id, dataset_ctx[f"YAXIS{suffix}_FIELD_METADATA"])
                 if y_aggregations and index < len(y_aggregations):
                     self._update_field_aggregation(view_info, field_id, y_aggregations[index])
-        if template_type == "table_info" and view_info.get("xAxis"):
+        def build_axis_fields(
+            prototype: dict[str, Any],
+            axis: str,
+            names: list[str],
+            *,
+            series_suffix: str | None = None,
+            metadata_offset: int = 0,
+        ) -> list[dict[str, Any]]:
+            fields: list[dict[str, Any]] = []
+            for index, _name in enumerate(names):
+                metadata_index = index + metadata_offset
+                suffix = "" if metadata_index == 0 else str(metadata_index + 1)
+                metadata = dataset_ctx.get(f"{axis}{suffix}_FIELD_METADATA")
+                if not metadata:
+                    continue
+                item = copy.deepcopy(prototype)
+                bind_field_metadata(item, str(item.get("id")), metadata)
+                if axis == "YAXIS":
+                    if y_aggregations and metadata_index < len(y_aggregations):
+                        item["summary"] = y_aggregations[metadata_index]
+                    channel = series_suffix or "yAxis"
+                    item["axisType"] = channel
+                    item["seriesId"] = f"{metadata.get('id')}-{channel}"
+                fields.append(item)
+            return fields
+
+        if adapter.get("preserve_table_axes"):
+            x_prototype = copy.deepcopy((view_info.get("xAxis") or [{}])[0])
+            y_prototype = copy.deepcopy((view_info.get("yAxis") or [x_prototype])[0])
+            view_info["xAxis"] = build_axis_fields(x_prototype, "XAXIS", x_names)
+            view_info["yAxis"] = build_axis_fields(y_prototype, "YAXIS", y_names)
+        elif template_type == "table_info" and view_info.get("xAxis"):
             prototype = view_info["xAxis"][0]
             table_fields: list[dict[str, Any]] = []
             for axis, names in (("XAXIS", x_names), ("YAXIS", y_names)):
@@ -426,6 +463,28 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                     table_fields.append(item)
             view_info["xAxis"] = table_fields
             view_info["yAxis"] = []
+        elif len(y_names) > 1:
+            y_prototype = copy.deepcopy((view_info.get("yAxis") or [{}])[0])
+            secondary_channel = adapter.get("secondary_y_channel")
+            if secondary_channel:
+                view_info["yAxis"] = build_axis_fields(y_prototype, "YAXIS", y_names[:1])
+                secondary = build_axis_fields(
+                    y_prototype, "YAXIS", y_names[1:2],
+                    series_suffix=str(secondary_channel),
+                    metadata_offset=1,
+                )
+                view_info[str(secondary_channel)] = secondary
+            else:
+                view_info["yAxis"] = build_axis_fields(y_prototype, "YAXIS", y_names)
+            tooltip = (
+                view_info.get("customAttr", {})
+                .get("tooltip", {})
+            )
+            if isinstance(tooltip, dict) and isinstance(tooltip.get("seriesTooltipFormatter"), list):
+                tooltip["seriesTooltipFormatter"] = [
+                    {**copy.deepcopy(item), "show": True}
+                    for item in view_info.get("yAxis", [])
+                ]
         self._replace_template_names(view_info, x_names, y_names)
         if chart_type == "flow-map":
             if len(x_names) < 2:
@@ -437,6 +496,33 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 raise ValueError("flow-map destination field metadata is unavailable")
             bind_field_metadata(prototype, str(prototype.get("id")), target_meta)
             view_info["xAxisExt"] = [prototype]
+
+        expected_y_ids = {
+            str(dataset_ctx[f"YAXIS{'' if index == 0 else index + 1}_FIELD_METADATA"]["id"])
+            for index in range(len(y_names))
+        }
+        if template_type == "table_info" and not adapter.get("preserve_table_axes"):
+            bound_y_ids = {
+                str(item.get("id")) for item in view_info.get("xAxis", [])
+                if isinstance(item, dict)
+            }
+        else:
+            bound_y_ids = {
+                str(item.get("id")) for item in view_info.get("yAxis", [])
+                if isinstance(item, dict)
+            }
+            secondary_channel = adapter.get("secondary_y_channel")
+            if secondary_channel:
+                bound_y_ids.update(
+                    str(item.get("id")) for item in view_info.get(str(secondary_channel), [])
+                    if isinstance(item, dict)
+                )
+        missing_y_ids = sorted(expected_y_ids - bound_y_ids)
+        if missing_y_ids:
+            raise ValueError(
+                f"{chart_type} failed to bind y_axis fields to native channels: "
+                f"{', '.join(missing_y_ids)}"
+            )
 
         components = json.loads(payload.get("componentData", "[]"))
         if not components:

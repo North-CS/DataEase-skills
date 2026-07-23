@@ -135,6 +135,89 @@ class LayoutTests(unittest.TestCase):
                 if chart_type in {"map", "bubble-map", "heat-map", "flow-map"}:
                     self.assertEqual(view["customAttr"]["map"], {"id": "156", "level": "country"})
 
+    def test_multi_measure_channels_are_built_without_template_slots(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        metadata = {
+            "DATASET_GROUP_ID": "100",
+            "XAXIS_FIELD_ID": "11", "XAXIS_DE_NAME": "f_region",
+            "XAXIS_FIELD_METADATA": {
+                "id": "11", "name": "区域", "dataeaseName": "f_region",
+                "groupType": "d", "deType": 0,
+            },
+        }
+        for index, name in enumerate(("销售额", "利润额", "订单量", "客户数"), start=1):
+            suffix = "" if index == 1 else str(index)
+            metadata[f"YAXIS{suffix}_FIELD_ID"] = str(20 + index)
+            metadata[f"YAXIS{suffix}_DE_NAME"] = f"f_m{index}"
+            metadata[f"YAXIS{suffix}_FIELD_METADATA"] = {
+                "id": str(20 + index), "name": name, "dataeaseName": f"f_m{index}",
+                "groupType": "q", "deType": 2,
+            }
+        engine.get_dataset_ctx = lambda *_args: metadata
+
+        for chart_type, count in (("bar", 2), ("line", 2), ("area-stack", 3), ("radar", 4), ("candle", 4)):
+            with self.subTest(chart_type=chart_type):
+                _component, view = engine.extract_chart_payload(
+                    chart_type, "100", ["区域"],
+                    ["销售额", "利润额", "订单量", "客户数"][:count],
+                    f"multi-{chart_type}",
+                    {"x": 1, "y": 1, "sizeX": 36, "sizeY": 12},
+                    y_aggregations=["sum"] * count,
+                )
+                self.assertEqual(
+                    [str(item["id"]) for item in view["yAxis"]],
+                    [str(21 + index) for index in range(count)],
+                )
+
+    def test_pivot_table_preserves_dimension_and_measure_axes(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        engine.get_dataset_ctx = lambda *_args: {
+            "DATASET_GROUP_ID": "100",
+            "XAXIS_FIELD_ID": "11", "XAXIS_DE_NAME": "f_name",
+            "XAXIS_FIELD_METADATA": {"id": "11", "name": "指标名称", "dataeaseName": "f_name", "groupType": "d", "deType": 0},
+            "XAXIS2_FIELD_ID": "12", "XAXIS2_DE_NAME": "f_status",
+            "XAXIS2_FIELD_METADATA": {"id": "12", "name": "状态", "dataeaseName": "f_status", "groupType": "d", "deType": 0},
+            "YAXIS_FIELD_ID": "21", "YAXIS_DE_NAME": "f_current",
+            "YAXIS_FIELD_METADATA": {"id": "21", "name": "当前数值", "dataeaseName": "f_current", "groupType": "q", "deType": 2},
+            "YAXIS2_FIELD_ID": "22", "YAXIS2_DE_NAME": "f_target",
+            "YAXIS2_FIELD_METADATA": {"id": "22", "name": "目标数值", "dataeaseName": "f_target", "groupType": "q", "deType": 2},
+        }
+        _component, view = engine.extract_chart_payload(
+            "table-pivot", "100", ["指标名称", "状态"], ["当前数值", "目标数值"],
+            "pivot-1", {"x": 1, "y": 1, "sizeX": 72, "sizeY": 12},
+            y_aggregations=["sum", "max"],
+        )
+        self.assertEqual([str(item["id"]) for item in view["xAxis"]], ["11", "12"])
+        self.assertEqual([str(item["id"]) for item in view["yAxis"]], ["21", "22"])
+        self.assertEqual([item["summary"] for item in view["yAxis"]], ["sum", "max"])
+
+    def test_bubble_map_uses_dedicated_secondary_measure_channel(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        engine.get_dataset_ctx = lambda *_args: {
+            "DATASET_GROUP_ID": "100",
+            "XAXIS_FIELD_ID": "11", "XAXIS_DE_NAME": "f_region",
+            "XAXIS_FIELD_METADATA": {"id": "11", "name": "省", "dataeaseName": "f_region", "groupType": "d", "deType": 0},
+            "YAXIS_FIELD_ID": "21", "YAXIS_DE_NAME": "f_sales",
+            "YAXIS_FIELD_METADATA": {"id": "21", "name": "销售额", "dataeaseName": "f_sales", "groupType": "q", "deType": 2},
+            "YAXIS2_FIELD_ID": "22", "YAXIS2_DE_NAME": "f_orders",
+            "YAXIS2_FIELD_METADATA": {"id": "22", "name": "订单量", "dataeaseName": "f_orders", "groupType": "q", "deType": 2},
+        }
+        _component, view = engine.extract_chart_payload(
+            "bubble-map", "100", ["省"], ["销售额", "订单量"], "bubble-1",
+            {"x": 1, "y": 1, "sizeX": 36, "sizeY": 12},
+            y_aggregations=["sum", "sum"],
+        )
+        self.assertEqual([str(item["id"]) for item in view["yAxis"]], ["21"])
+        self.assertEqual([str(item["id"]) for item in view["extBubble"]], ["22"])
+
+    def test_unsupported_extra_measure_is_rejected_instead_of_dropped(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        with self.assertRaisesRegex(ValueError, "supports at most 1"):
+            engine.extract_chart_payload(
+                "pie", "100", ["区域"], ["销售额", "利润额"], "pie-overflow",
+                {"x": 1, "y": 1, "sizeX": 36, "sizeY": 12},
+            )
+
     def test_dense_dashboard_recommends_readable_scroll_height(self):
         charts = [
             *[{"type": "indicator", "intent": "kpi"} for _ in range(4)],
