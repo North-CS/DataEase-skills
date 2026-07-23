@@ -2,6 +2,8 @@
 
 面向 AI Agent 的 DataEase V2 自动化能力包。覆盖数据探索、可视化构建、平台管理、认证集成全链路，高风险操作约束在 dry-run、确认令牌和回读验证流程中。
 
+> 当前增强版位于 `feat/dataease-skill-v2` 分支，尚未合并到 `main`。安装和更新时请显式指定该分支。
+
 ---
 
 ## 🎯 核心能力
@@ -15,7 +17,7 @@
 | 🎨 图表类型 | 7 大类 30+ 种：指标/趋势/柱形/构成/表格/地图/关系，含 K 线图、仪表盘、瀑布图 |
 | 🔐 权限与迁移 | 用户/角色资源授权、可移植备份/恢复、跨环境 ID 映射和迁移 |
 | 🧩 扩展与编排 | 插件/数据库驱动生命周期，质量→指标→模型→大屏→权限→报告一站式流水线 |
-| 📋 数据填报 | 表单、任务和数据行的查询与安全变更 |
+| 📋 数据填报 | 绑定数据源/已有表、一次性或周期任务、启停/立即执行/删除任务、数据行安全变更 |
 | 👥 平台管理 | 组织、用户、角色、权限矩阵、系统设置和邮件配置 |
 | 🔗 认证与集成 | MFA、HMAC、LDAP、OIDC、CAS、OAuth2、SAML2、钉钉、企微、飞书 |
 | 📬 自动化 | 定时报告、执行日志、Webhook 和投递状态 |
@@ -28,8 +30,10 @@
 克隆到本地 Skill 目录：
 
 ```bash
-git clone https://github.com/North-CS/DataEase-skills.git <skills-dir>/dataease
+git clone --branch feat/dataease-skill-v2 https://github.com/North-CS/DataEase-skills.git <skills-dir>/dataease
 ```
+
+不要省略 `--branch feat/dataease-skill-v2`，否则默认克隆的是尚未包含增强功能的 `main`。
 
 安装依赖：
 
@@ -90,7 +94,28 @@ python scripts/dataease.py visual create --dataset "销售数据" --title "销�
 
 # 一站式方案
 python scripts/dataease.py solution plan --spec sales-solution.json
+
+# 数据填报：发现可填报数据源、内建表和任务
+python scripts/dataease.py filling datasources
+python scripts/dataease.py filling built-in-tables
+python scripts/dataease.py filling task-info --task-id 456
+
+# 停止/恢复后续调度（L2，先生成计划，再按返回的 plan_id 执行）
+python scripts/dataease.py filling task-stop --form-id 123 --task-id 456
+python scripts/dataease.py filling task-stop --apply --plan-id plan-xxxxxxxx
+python scripts/dataease.py filling task-start --form-id 123 --task-id 456
+python scripts/dataease.py filling task-start --apply --plan-id plan-xxxxxxxx
+
+# 立即执行/永久删除（L3，必须显式接受无自动回滚并使用确认令牌）
+python scripts/dataease.py filling task-execute-now --form-id 123 --task-id 456 --ack-no-rollback
+python scripts/dataease.py filling task-execute-now --apply --plan-id plan-xxxxxxxx --confirm-token TOKEN
+python scripts/dataease.py filling task-delete --form-id 123 --task-id 456 --ack-no-rollback
+python scripts/dataease.py filling task-delete --apply --plan-id plan-xxxxxxxx --confirm-token TOKEN
 ```
+
+填报表单可通过 `datasource`、`tableName`、`useExistsTable` 绑定数据库表；任务支持一次性和周期计划。`task-stop` 只停止后续调度并保留任务定义，`task-delete` 才会永久删除任务。创建参数模板见 [规格参考](references/specs.md)。
+
+创建用户时，DataEase 会应用系统配置的初始密码，创建 DTO 不支持自定义密码。Skill 会拒绝 `password`、`pwd`、`newPwd` 等字段，避免服务端静默忽略后产生“密码已设置”的误判；密码重置是独立操作。
 
 ---
 
@@ -103,7 +128,7 @@ python scripts/dataease.py solution plan --spec sales-solution.json
 | 🟠 **L2** | 编辑操作：可视化/字段/主题修改、模型保存、发布 | 展示 diff，按 `plan_id` 确认后执行 |
 | 🔴 **L3** | 高危：权限变更、删除、迁移、插件/驱动、管理员创建、认证变更 | 需 `plan_id` + `confirmation_token` + 回滚说明 |
 
-角色编辑、权限矩阵变化、用户角色变化和管理员创建均属 L3。安全约束由 Python CLI 强制执行。
+角色编辑、权限矩阵变化、用户角色变化和管理员创建均属 L3。填报任务启动/停止为 L2；立即执行和永久删除为 L3，其中不可自动回滚的操作还需 `--ack-no-rollback`。安全约束由 Python CLI 强制执行。
 
 ---
 

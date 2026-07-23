@@ -139,7 +139,7 @@ Visual spec 可选传入 `canvas.width/height/screen_adaptor`、`theme` 与 `int
 
 | 操作类型 | 风险 | 特殊约束 |
 |----------|------|----------|
-| 👤 创建普通用户 | L1 | — |
+| 👤 创建普通用户 | L1 | 仅使用 DataEase 系统初始密码，拒绝自定义密码字段 |
 | 👑 创建管理员用户 | L3 | role 为 root=true, readonly=false 时自动升级 |
 | ✏️ 编辑用户资料 | L2 | roleIds 变化时立即升为 L3 |
 | 🎭 角色编辑 | L3 | 只编辑名称/描述用 `role-edit`，修改权限矩阵用 `role-permission-set` |
@@ -159,6 +159,8 @@ Visual spec 可选传入 `canvas.width/height/screen_adaptor`、`theme` 与 `int
 > ⚠️ X-Pack 功能取决于版本、授权和账号权限。`system capabilities` 未确认前不得宣称可用。
 
 数据填报表单可通过 `datasource`、`tableName`、`useExistsTable` 绑定数据库表；任务可配置一次性或周期计划，并支持查看、启动、停止、立即执行和删除。创建前先用 `filling datasources`、`datasource tables` 和 `filling task-info` 读取版本原生 DTO。字段与命令见 `references/specs.md` 和 `references/commands.md`。
+
+创建用户时不得向 `user-create` 传入 `password`、`pwd`、`newPwd` 或同类字段。DataEase 创建 DTO 只应用系统初始密码；Skill 必须拒绝自定义密码字段，并在结果中报告 `password_mode=system_initial_password`，不得宣称自定义密码已经生效。
 
 ---
 
