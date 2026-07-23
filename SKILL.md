@@ -151,11 +151,14 @@ Visual spec 可选传入 `canvas.width/height/screen_adaptor`、`theme` 与 `int
 | 🗑️ 删除/清空 | L3 | 无回滚说明时拒绝执行 |
 | 🔗 认证/集成变更 | L3 | 含 SSO、企业集成配置 |
 | 📬 报告启动/创建 | L3 | — |
+| ⏱️ 填报任务 | L2–L3 | 启停为 L2；立即执行和删除为 L3；停止只取消后续调度，不删除任务 |
 | 🚫 禁用用户 | L3 | — |
 | 🔌 数据源连接/结构变更 | L3 | — |
 | 🧪 版本适配 | 动态 | 高于 `2.10.25` 默认只读；`DATAEASE_ALLOW_UNVERIFIED_VERSION=true` 仅在隔离兼容性测试中使用 |
 
 > ⚠️ X-Pack 功能取决于版本、授权和账号权限。`system capabilities` 未确认前不得宣称可用。
+
+数据填报表单可通过 `datasource`、`tableName`、`useExistsTable` 绑定数据库表；任务可配置一次性或周期计划，并支持查看、启动、停止、立即执行和删除。创建前先用 `filling datasources`、`datasource tables` 和 `filling task-info` 读取版本原生 DTO。字段与命令见 `references/specs.md` 和 `references/commands.md`。
 
 ---
 

@@ -570,6 +570,7 @@ def _filling_create(
                 raise DataEaseError("任务配置中必须包含 formId", code="invalid_spec", stage="input")
             target = {"name": spec["name"], "formId": str(spec["formId"])}
         else:
+            spec = _normalize_filling_form_spec(spec)
             node_type = str(spec.get("nodeType") or "").strip()
             if node_type not in {"folder", "form"}:
                 raise DataEaseError("nodeType 必须是 folder 或 form", code="invalid_spec", stage="input")
@@ -646,6 +647,39 @@ _FILLING_TASK_ALIASES = {
     "rateValue": "rateVal",
 }
 
+_FILLING_FORM_WRITABLE_FIELDS = {
+    "name", "pid", "nodeType", "tableName", "datasource", "datasourceName",
+    "forms", "createIndex", "tableIndexes", "useExistsTable",
+}
+
+
+def _normalize_filling_form_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(spec)
+    unknown = sorted(set(normalized) - _FILLING_FORM_WRITABLE_FIELDS)
+    if unknown:
+        raise DataEaseError(
+            "数据填报配置包含 DataEase DTO 不识别的字段",
+            code="unknown_spec_fields",
+            stage="input",
+            details={"fields": unknown, "allowed_fields": sorted(_FILLING_FORM_WRITABLE_FIELDS)},
+        )
+    node_type = str(normalized.get("nodeType") or "").strip()
+    if node_type == "form":
+        missing = [
+            field for field in ("datasource", "tableName", "forms")
+            if normalized.get(field) in (None, "")
+        ]
+        if missing:
+            raise DataEaseError(
+                "数据填报表单必须绑定数据源、表名和表单定义",
+                code="invalid_spec",
+                stage="input",
+                details={"missing": missing},
+            )
+        if "useExistsTable" in normalized and not isinstance(normalized["useExistsTable"], bool):
+            raise DataEaseError("useExistsTable 必须是布尔值", code="invalid_spec", stage="input")
+    return normalized
+
 
 def _normalize_task_id_list(value: Any, field: str) -> list[int]:
     values = [item.strip() for item in value.split(",") if item.strip()] if isinstance(value, str) else value
@@ -695,6 +729,104 @@ def _normalize_filling_task_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], 
             details={"fields": unknown, "allowed_fields": sorted(_FILLING_TASK_WRITABLE_FIELDS)},
         )
     return normalized, applied_aliases
+
+
+def _filling_task_lifecycle(
+    args: argparse.Namespace,
+    client: DataEaseClient,
+    plans: PlanStore,
+    audit: AuditLog,
+) -> dict[str, Any]:
+    action = str(args.action)
+    operation = f"filling.{action}"
+    risk = "L3" if action in {"task-execute-now", "task-delete"} else "L2"
+    no_rollback = action in {"task-execute-now", "task-delete"}
+    if not args.apply:
+        if not args.form_id or not args.task_id:
+            raise DataEaseError("需要 --form-id 与 --task-id", code="invalid_input", stage="input")
+        if no_rollback and not args.ack_no_rollback:
+            raise DataEaseError(
+                "立即执行或删除任务不可自动回滚；dry-run 需要 --ack-no-rollback",
+                code="rollback_ack_required",
+                stage="safety",
+            )
+        current = client.data("GET", f"/data-filling/task/info/{args.task_id}")
+        if not isinstance(current, dict) or str(current.get("id")) != str(args.task_id):
+            raise DataEaseError("找不到目标填报任务", code="resource_not_found", stage="data_filling")
+        if str(current.get("formId")) != str(args.form_id):
+            raise DataEaseError("任务不属于指定表单", code="target_mismatch", stage="safety")
+        rollback = {
+            "strategy": (
+                "task-stop" if action == "task-start"
+                else "task-start" if action == "task-stop"
+                else "none"
+            ),
+            "requires_confirmation": no_rollback,
+        }
+        plan = plans.create(
+            operation,
+            target={
+                "type": "data-filling-task",
+                "id": str(args.task_id),
+                "formId": str(args.form_id),
+                "name": current.get("name"),
+            },
+            changes=[{"action": action.removeprefix("task-"), "resource": "data-filling-task"}],
+            risk=risk,
+            spec={
+                "taskId": str(args.task_id),
+                "formId": str(args.form_id),
+                "precondition_sha256": _content_digest(current),
+            },
+            rollback=rollback,
+            context=_plan_context(client),
+        )
+        return _envelope(operation, plan, mode="dry-run", changes=plan["changes"])
+
+    if not args.plan_id:
+        raise DataEaseError("执行任务操作需要 --plan-id", code="plan_required", stage="safety")
+    plan = plans.load(args.plan_id, args.confirm_token, expected_context=_plan_context(client))
+    if plan.get("operation") != operation:
+        raise DataEaseError(f"plan-id 不属于 {operation}", code="invalid_plan", stage="safety")
+    stored = plan["spec"]
+    current = client.data("GET", f"/data-filling/task/info/{stored['taskId']}")
+    if not isinstance(current, dict) or _content_digest(current) != stored["precondition_sha256"]:
+        raise DataEaseError("目标填报任务已变化，请重新 dry-run", code="target_changed", stage="safety")
+    form_id, task_id = stored["formId"], stored["taskId"]
+    if action in {"task-start", "task-stop"}:
+        verb = "start" if action == "task-start" else "stop"
+        response = client.data("GET", f"/data-filling/form/{form_id}/task/{task_id}/{verb}")
+        after = client.data("GET", f"/data-filling/task/info/{task_id}")
+        status = after.get("status") if isinstance(after, dict) else None
+        if (action == "task-stop" and status != 2) or (action == "task-start" and (status is None or status >= 2)):
+            raise DataEaseError(
+                "任务状态回读不一致",
+                code="verification_failed",
+                stage="verification",
+                details={"action": action, "status": status},
+            )
+        result = {"response": response, "before": current, "after": after}
+    elif action == "task-execute-now":
+        payload = {"id": task_id, "formId": form_id, "endTime": current.get("endTime")}
+        response = client.data("POST", "/data-filling/task/executeNow", payload)
+        result = {"accepted": True, "response": response, "task": payload}
+    else:
+        response = client.data("POST", f"/data-filling/form/{form_id}/task/delete", [int(task_id)])
+        page = client.data("POST", f"/data-filling/form/{form_id}/task/page/1/1000", {})
+        records = page.get("records", []) if isinstance(page, dict) else []
+        if any(str(item.get("id")) == str(task_id) for item in records if isinstance(item, dict)):
+            raise DataEaseError("删除后任务仍然存在", code="verification_failed", stage="verification")
+        result = {"deleted": True, "response": response, "id": task_id, "formId": form_id}
+    audit_id = audit.write(
+        operation,
+        status="success",
+        risk=plan["risk"],
+        target=plan.get("target"),
+        changes=plan.get("changes"),
+        result=result,
+    )
+    plans.mark_applied(args.plan_id, audit_id)
+    return _envelope(operation, result, mode="apply", adapter="official-api", audit_id=audit_id)
 
 
 def _write_snapshot(settings: Settings, resource_type: str, resource_id: str, data: Any) -> str:
@@ -1422,6 +1554,8 @@ def build_parser() -> argparse.ArgumentParser:
     filling = domains.add_parser("filling")
     filling_actions = filling.add_subparsers(dest="action", required=True)
     filling_actions.add_parser("list")
+    filling_actions.add_parser("datasources")
+    filling_actions.add_parser("built-in-tables")
     filling_get = filling_actions.add_parser("get")
     filling_get.add_argument("--id", required=True)
     filling_tasks = filling_actions.add_parser("tasks")
@@ -1458,6 +1592,16 @@ def build_parser() -> argparse.ArgumentParser:
         filling_create.add_argument("--apply", action="store_true")
         filling_create.add_argument("--plan-id", default="")
         filling_create.add_argument("--confirm-token", default="")
+    filling_task_info = filling_actions.add_parser("task-info")
+    filling_task_info.add_argument("--task-id", required=True)
+    for action in ("task-start", "task-stop", "task-execute-now", "task-delete"):
+        task_action = filling_actions.add_parser(action)
+        task_action.add_argument("--form-id", default="")
+        task_action.add_argument("--task-id", default="")
+        task_action.add_argument("--ack-no-rollback", action="store_true")
+        task_action.add_argument("--apply", action="store_true")
+        task_action.add_argument("--plan-id", default="")
+        task_action.add_argument("--confirm-token", default="")
     filling_delete = filling_actions.add_parser("delete")
     filling_delete.add_argument("--id", default="")
     filling_delete.add_argument("--name", default="")
@@ -1772,6 +1916,12 @@ def run(argv: list[str] | None = None) -> int:
                 result = _envelope(key, platform.filling_forms())
             elif key == "filling.get":
                 result = _envelope(key, client.data("GET", f"/data-filling/get/{args.id}"))
+            elif key == "filling.datasources":
+                result = _envelope(key, client.data("GET", "/data-filling/datasource/list"))
+            elif key == "filling.built-in-tables":
+                result = _envelope(key, client.data("POST", "/data-filling/getBuiltInTables", {}))
+            elif key == "filling.task-info":
+                result = _envelope(key, client.data("GET", f"/data-filling/task/info/{args.task_id}"))
             elif key == "filling.tasks":
                 result = _envelope(
                     key,
@@ -1796,6 +1946,13 @@ def run(argv: list[str] | None = None) -> int:
                 result = _filling_truncate(args, client, plans, audit)
             elif key in {"filling.create", "filling.task-create"}:
                 result = _filling_create(args, client, plans, audit)
+            elif key in {
+                "filling.task-start",
+                "filling.task-stop",
+                "filling.task-execute-now",
+                "filling.task-delete",
+            }:
+                result = _filling_task_lifecycle(args, client, plans, audit)
             elif key == "filling.delete":
                 result = _filling_delete(args, settings, client, plans, audit)
             elif key == "admin.organizations":

@@ -173,6 +173,21 @@ def _validate_required(spec: dict[str, Any], required: tuple[str, ...]) -> None:
 def _normalize_create_spec(action: str, spec: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(spec)
     if action == "user-create":
+        forbidden_password_fields = sorted(
+            field for field in normalized
+            if field.casefold() in {"password", "pwd", "newpwd", "new_password", "initialpassword"}
+        )
+        if forbidden_password_fields:
+            raise DataEaseError(
+                "DataEase 用户创建接口不支持指定密码；新用户始终使用系统初始密码",
+                code="custom_user_password_unsupported",
+                stage="input",
+                details={
+                    "fields": forbidden_password_fields,
+                    "password_mode": "system_initial_password",
+                    "custom_password_applied": False,
+                },
+            )
         normalized.setdefault("variables", [])
         normalized.setdefault("mfaEnable", False)
         if not isinstance(normalized["variables"], list):
@@ -569,6 +584,12 @@ def _create(
     if str(detail.get(config["identity"])) != str(spec.get(config["identity"])):
         raise DataEaseError("创建后身份字段回读不一致", code="verification_failed", stage="verification")
     result = _public_state(config["resource"], detail)
+    if args.action == "user-create":
+        result.update({
+            "password_mode": "system_initial_password",
+            "custom_password_applied": False,
+            "password_change_required": True,
+        })
     audit_id = audit.write(
         operation,
         status="success",

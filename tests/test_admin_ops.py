@@ -157,6 +157,32 @@ class AdminMutationTests(unittest.TestCase):
             self.assertEqual(applied["result"]["id"], "20")
             self.assertEqual(client.last_user_create["variables"], [])
             self.assertFalse(client.last_user_create["mfaEnable"])
+            self.assertEqual(applied["result"]["password_mode"], "system_initial_password")
+            self.assertFalse(applied["result"]["custom_password_applied"])
+            self.assertTrue(applied["result"]["password_change_required"])
+
+    def test_user_create_rejects_custom_password_without_persisting_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            spec_path = root / "user.json"
+            secret = "NeverStoreThis!123"
+            spec_path.write_text(json.dumps({
+                "name": "Codex User", "account": "codex_user",
+                "email": "codex@example.invalid", "roleIds": [10], "enable": True,
+                "password": secret,
+            }), encoding="utf-8")
+            with self.assertRaises(DataEaseError) as raised:
+                handle_admin_mutation(
+                    argparse.Namespace(action="user-create", apply=False, spec=str(spec_path),
+                                       plan_id="", confirm_token=""),
+                    Settings(base_url="http://example", x_de_token="token", output_dir=root),
+                    FakeAdminClient(),
+                    PlanStore(root),
+                    AuditLog(root),
+                )
+            self.assertEqual(raised.exception.code, "custom_user_password_unsupported")
+            self.assertNotIn(secret, str(raised.exception.details))
+            self.assertEqual(list((root / "plans").glob("*.json")), [])
 
     def test_user_create_with_administrator_role_is_l3(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

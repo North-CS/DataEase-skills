@@ -19,6 +19,7 @@ from scripts.dataease_skill.cli import (
     _filling_delete,
     _filling_row_delete,
     _filling_row_save,
+    _filling_task_lifecycle,
     _filling_truncate,
     _visual_delete,
     _validate_visual_chart_data,
@@ -254,6 +255,69 @@ class PlannedWriteTests(unittest.TestCase):
                     AuditLog(root),
                 )
             self.assertEqual(raised.exception.code, "unknown_spec_fields")
+
+    def test_filling_form_can_bind_existing_datasource_table(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            spec_path = root / "form.json"
+            spec_path.write_text(json.dumps({
+                "name": "销售填报", "pid": "0", "nodeType": "form",
+                "datasource": "100", "tableName": "sales_input",
+                "forms": "[]", "useExistsTable": True,
+            }), encoding="utf-8")
+            plans = PlanStore(root)
+            result = _filling_create(
+                argparse.Namespace(action="create", spec=str(spec_path), apply=False,
+                                   plan_id="", confirm_token=""),
+                None, plans, AuditLog(root),
+            )
+            stored = plans.load(result["result"]["plan_id"])["spec"]
+            self.assertEqual(stored["datasource"], "100")
+            self.assertEqual(stored["tableName"], "sales_input")
+            self.assertTrue(stored["useExistsTable"])
+
+    def test_filling_task_stop_is_l2_and_verified(self) -> None:
+        class Client:
+            def __init__(self):
+                self.settings = Settings(base_url="http://example", x_de_token="token")
+                self.task = {"id": "9", "formId": "10", "name": "月度收集", "status": 0}
+
+            def data(self, method, path, payload=None):
+                if path == "/license/version":
+                    return "2.10.25"
+                if path == "/data-filling/task/info/9":
+                    return dict(self.task)
+                if path == "/data-filling/form/10/task/9/stop":
+                    self.task["status"] = 2
+                    return None
+                raise AssertionError((method, path, payload))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = Client()
+            plans, audit = PlanStore(root), AuditLog(root)
+            args = argparse.Namespace(
+                action="task-stop", form_id="10", task_id="9",
+                ack_no_rollback=False, apply=False, plan_id="", confirm_token="",
+            )
+            planned = _filling_task_lifecycle(args, client, plans, audit)
+            self.assertEqual(planned["result"]["risk"], "L2")
+            args.apply = True
+            args.plan_id = planned["result"]["plan_id"]
+            applied = _filling_task_lifecycle(args, client, plans, audit)
+            self.assertEqual(applied["result"]["after"]["status"], 2)
+
+    def test_filling_task_delete_requires_l3_ack(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            args = argparse.Namespace(
+                action="task-delete", form_id="10", task_id="9",
+                ack_no_rollback=False, apply=False, plan_id="", confirm_token="",
+            )
+            with self.assertRaises(DataEaseError) as raised:
+                _filling_task_lifecycle(
+                    args, None, PlanStore(Path(directory)), AuditLog(Path(directory)),
+                )
+            self.assertEqual(raised.exception.code, "rollback_ack_required")
 
     def test_row_write_plan_stores_digest_not_row_values(self) -> None:
         class FakeClient:

@@ -66,6 +66,35 @@ python scripts/dataease.py datasource table-fields --datasource-id 123 --table-n
 
 Some `2.10.x` servers return `info: null` and `isCross: null` from `getTables` even though `tableField` requires a serialized `{"table":"..."}` descriptor and a concrete boolean. The Skill fills those two missing physical-table values (`info` and `isCross: false`) and otherwise preserves the server DTO unchanged.
 
+## Data filling
+
+Bind a form to a DataEase datasource and an existing physical table with the official
+`DataFillingDTO` fields. `forms` is the DataEase form-designer JSON string; obtain a known-good
+shape from an equivalent form rather than inventing component DTOs.
+
+```json
+{
+  "name": "销售目标填报",
+  "pid": "0",
+  "nodeType": "form",
+  "datasource": "123",
+  "datasourceName": "业务数据库",
+  "tableName": "sales_target_input",
+  "useExistsTable": true,
+  "forms": "[]",
+  "createIndex": false,
+  "tableIndexes": "[]"
+}
+```
+
+Use `filling datasources` to list eligible sources. `filling built-in-tables` lists tables from
+DataEase's built-in datasource; use the general `datasource tables` command for an external
+datasource. A scheduled task uses `rateType`, `oneTimeType`, `rateVal`, `startTime` and `endTime`.
+Inspect an equivalent task because the exact `rateVal` representation depends on the selected
+schedule type and DataEase version. `task-stop` cancels future scheduling without deleting the
+definition; `task-start` resumes it. `task-execute-now` triggers one run. `task-delete` permanently
+removes the task definition.
+
 ## Administration
 
 ```json
@@ -96,7 +125,7 @@ Some `2.10.x` servers return `info: null` and `isCross: null` from `getTables` e
 }
 ```
 
-On DataEase `2.10.25`, `/user/create` iterates `variables` without accepting null. The Skill supplies `variables: []` and `mfaEnable: false` when callers omit them, and binds that normalized DTO to the plan digest.
+On DataEase `2.10.25`, `/user/create` iterates `variables` without accepting null. The Skill supplies `variables: []` and `mfaEnable: false` when callers omit them, and binds that normalized DTO to the plan digest. The DTO has no password field and the server always assigns its configured initial password. The Skill rejects `password`, `pwd`, `newPwd` and similar fields before planning; it never pretends a caller-supplied password was applied and never persists that value.
 
 Use the current detail payload as the base for edit operations and preserve fields not intentionally changed.
 

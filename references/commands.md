@@ -132,8 +132,11 @@ Unified `visual create` and `visual autopilot` publish the resource and then per
 
 ```bash
 python scripts/dataease.py filling list
+python scripts/dataease.py filling datasources
+python scripts/dataease.py filling built-in-tables
 python scripts/dataease.py filling get --id 123
 python scripts/dataease.py filling tasks --form-id 123 --page 1 --size 20
+python scripts/dataease.py filling task-info --task-id 456
 python scripts/dataease.py filling rows --form-id 123 --page 1 --size 20
 
 # Create a folder/form or task from an official DataEase DTO-shaped JSON spec.
@@ -141,6 +144,18 @@ python scripts/dataease.py filling create --spec filling.json
 python scripts/dataease.py filling create --apply --plan-id plan-xxxxxxxx
 python scripts/dataease.py filling task-create --spec task.json
 python scripts/dataease.py filling task-create --apply --plan-id plan-xxxxxxxx
+
+# Reversible schedule controls are L2.
+python scripts/dataease.py filling task-stop --form-id 123 --task-id 456
+python scripts/dataease.py filling task-stop --apply --plan-id plan-xxxxxxxx
+python scripts/dataease.py filling task-start --form-id 123 --task-id 456
+python scripts/dataease.py filling task-start --apply --plan-id plan-xxxxxxxx
+
+# Immediate execution and deletion are L3 and have no automatic rollback.
+python scripts/dataease.py filling task-execute-now --form-id 123 --task-id 456 --ack-no-rollback
+python scripts/dataease.py filling task-execute-now --apply --plan-id plan-xxxxxxxx --confirm-token TOKEN
+python scripts/dataease.py filling task-delete --form-id 123 --task-id 456 --ack-no-rollback
+python scripts/dataease.py filling task-delete --apply --plan-id plan-xxxxxxxx --confirm-token TOKEN
 
 # Repeat the same row spec at apply time; the plan stores only its SHA-256 digest.
 python scripts/dataease.py filling row-save --spec row.json
@@ -177,6 +192,8 @@ python scripts/dataease.py admin user-delete --id 123 --account codex_user --ack
 ```
 
 `role-edit` only changes role metadata (`name` and `desc`) and is always L3. Use `role-permissions` and `role-permission-set` for one role's menu/resource matrices; use `permission apply` to orchestrate several resource scopes for either a user or role. These commands treat the spec as the complete desired direct-permission matrix, convert omissions to DataEase `weight: 0` revocations, snapshot and verify readback. `role-permission-set` deliberately rejects embedded row/column changes; manage those independent rules with L3 `model permission-save/delete`. If the target edition/version lacks the required endpoint, the command returns `capability_unavailable`. `user-edit` is L3 only when normalized `roleIds` change; otherwise it is L2. `user-create` is L3 when a selected role is the DataEase administrator role (`root=true`, `readonly=false`), and L1 for ordinary roles.
+
+`user-create` does not accept `password`, `pwd`, `newPwd` or similar fields. DataEase's create DTO always applies the configured system initial password; the Skill rejects custom-password fields instead of allowing DataEase to silently ignore them. The apply result reports `password_mode=system_initial_password`.
 
 ### Data-filling task spec
 
