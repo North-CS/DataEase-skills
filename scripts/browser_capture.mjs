@@ -130,11 +130,20 @@ async function getRenderState(page, selector) {
     const loadingSelectors = '.el-loading-mask,.ed-loading-mask,.v-loading-mask,[class*="loading-mask"]';
     const visibleLoadingMasks = Array.from(document.querySelectorAll(loadingSelectors)).filter(visible).length;
     const unfinishedReportLoads = document.querySelectorAll('.report-load:not(.report-load-finish)').length;
+    const visibleQueryComponents = Array.from(
+      document.querySelectorAll('.v-query-container')
+    ).filter(visible);
+    const visibleQueryConditions = visibleQueryComponents.reduce(
+      (total, component) => total + Array.from(component.querySelectorAll('.query-item')).filter(visible).length,
+      0
+    );
     const box = canvas?.getBoundingClientRect();
     return {
       hasCanvas: !!canvas,
       visibleLoadingMasks,
       unfinishedReportLoads,
+      visibleQueryComponents: visibleQueryComponents.length,
+      visibleQueryConditions,
       width: Math.round(box?.width || 0),
       height: Math.round(box?.height || 0)
     };

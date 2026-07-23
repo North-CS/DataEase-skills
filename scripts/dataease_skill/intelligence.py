@@ -6,6 +6,7 @@ from typing import Any
 
 from .layout_planner import describe_layout_strategy, plan_smart_layouts
 from .chart_catalog import SUPPORTED_CHART_TYPES
+from .design_inspiration import apply_design_inspiration
 
 
 OHLC_PATTERN = re.compile(
@@ -467,7 +468,7 @@ def build_visual_plan(
     planned_layouts = plan_smart_layouts(charts, reserved_top_rows=4 if filters else 0)
     for chart, layout in zip(charts, planned_layouts):
         chart["layout"] = layout
-    return {
+    spec = {
         "schema_version": 2,
         "kind": busi_type,
         "title": title,
@@ -493,3 +494,4 @@ def build_visual_plan(
         "recommendations": recommendations,
         "limitations": ["当前规划基于字段元数据；业务指标口径、关联键、数据粒度和聚合方式必须在创建前确认。"],
     }
+    return apply_design_inspiration(spec, title=title, busi_type=busi_type)

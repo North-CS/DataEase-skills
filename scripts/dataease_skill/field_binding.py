@@ -29,6 +29,8 @@ def bind_field_metadata(obj: Any, target_id: str, field: dict[str, Any]) -> None
             for key, value in field.items():
                 if key in FIELD_METADATA_KEYS:
                     obj[key] = copy.deepcopy(value)
+            if str(field.get("groupType") or "").lower() == "d":
+                obj["summary"] = "none"
             name = str(field.get("name") or field.get("originName") or "")
             for key in ("optionLabel", "optionShowName"):
                 if key in obj and isinstance(obj[key], str):

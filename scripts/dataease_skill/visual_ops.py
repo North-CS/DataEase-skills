@@ -22,7 +22,8 @@ from .versioning import adapter_for_client
 COMPONENT_PATCH_KEYS = {
     "x", "y", "sizeX", "sizeY", "name", "label", "style", "matrixStyle",
     "commonBackground", "isShow", "dashboardHidden", "linkage", "linkageFilters",
-    "events", "actionSelection", "carousel", "propValue",
+    "events", "actionSelection", "carousel", "propValue", "render", "category",
+    "dragging", "resizing", "show", "cascade",
 }
 VIEW_PATCH_KEYS = {
     "title", "tableId", "type", "render", "resultMode", "resultCount", "customAttr",

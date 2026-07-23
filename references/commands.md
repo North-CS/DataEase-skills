@@ -109,6 +109,14 @@ python scripts/dataease.py visual create --spec visual.json
 # Apply the exact plan returned above
 python scripts/dataease.py visual create --apply --plan-id plan-xxxxxxxx
 
+# Text-only / weaker-model autopilot: profile the dataset, select charts, interactions,
+# theme and responsive layout deterministically, then return a normal create plan.
+python scripts/dataease.py visual autopilot --dataset "销售明细" --title "销售驾驶舱" --busi-type dashboard --complexity standard
+python scripts/dataease.py visual autopilot --dataset "销售明细" --title "销售大屏" --busi-type dataV --theme tech-blue --complexity compact
+
+# Apply the exact autopilot plan returned above; no image understanding is required.
+python scripts/dataease.py visual autopilot --apply --plan-id plan-xxxxxxxx
+
 # Publish/unpublish uses the same two-step flow
 python scripts/dataease.py visual publish --resource-id 123 --name "经营分析" --status 1
 python scripts/dataease.py visual publish --apply --plan-id plan-xxxxxxxx
@@ -118,7 +126,7 @@ python scripts/dataease.py visual delete --resource-id 123 --name "经营分析"
 python scripts/dataease.py visual delete --apply --plan-id plan-xxxxxxxx --confirm-token TOKEN
 ```
 
-Unified `visual create` leaves the new resource unpublished (`status: 0`). Publish it with a separate L2 plan so creation and exposure remain independently reviewable.
+Unified `visual create` and `visual autopilot` publish the resource and then perform deterministic read-back, chart-data and optional capture checks. If a required post-create check fails, the workflow reports the failed stage and attempts compensating cleanup. Screenshot interpretation is an optional visual enhancement, not a success prerequisite; text-only models can rely on the machine-readable quality report and verification results.
 
 ## Data filling and administration
 

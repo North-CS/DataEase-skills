@@ -60,14 +60,16 @@ class FieldProfileTests(unittest.TestCase):
         profile = DatasetService(FakeClient()).profile("销售")
         plan = build_visual_plan(profile, "销售经营分析", "dataV")
         self.assertEqual(plan["kind"], "dataV")
-        self.assertEqual(plan["theme"], "neon-dark")
+        self.assertEqual(plan["theme"], "deep-ocean")
+        self.assertEqual(plan["design_inspiration"]["grammar"], "retail-operations")
+        self.assertFalse(plan["design_inspiration"]["template_copying"])
         self.assertIn("line", [chart["type"] for chart in plan["charts"]])
         self.assertIn("bar", [chart["type"] for chart in plan["charts"]])
         table = next(chart for chart in plan["charts"] if chart["type"] == "table_info")
         self.assertEqual(table["x_axis"], ["日期", "区域"])
         self.assertEqual(table["y_axis"], ["销售额"])
         self.assertEqual(table["layout"]["sizeX"], 72)
-        self.assertEqual(plan["layout_strategy"]["engine"], "semantic-v1")
+        self.assertEqual(plan["layout_strategy"]["engine"], "semantic-v2")
         self.assertTrue(plan["recommendations"])
 
     def test_dashboard_plan_gets_responsive_semantic_layout(self):
@@ -76,7 +78,8 @@ class FieldProfileTests(unittest.TestCase):
         trend = next(chart for chart in plan["charts"] if chart["intent"] == "trend")
         composition = next(chart for chart in plan["charts"] if chart["intent"] == "composition")
         detail = next(chart for chart in plan["charts"] if chart["intent"] == "detail")
-        self.assertEqual((trend["layout"]["sizeX"], composition["layout"]["sizeX"]), (48, 24))
+        self.assertGreaterEqual(trend["layout"]["sizeX"], 36)
+        self.assertGreaterEqual(composition["layout"]["sizeX"], 24)
         self.assertEqual(detail["layout"]["sizeX"], 72)
         self.assertEqual(plan["kind"], "dashboard")
 

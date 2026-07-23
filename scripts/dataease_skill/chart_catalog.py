@@ -52,3 +52,42 @@ def chart_adapter(chart_type: str) -> dict[str, Any]:
 def native_chart_type(chart_type: str) -> str:
     adapter = chart_adapter(chart_type)
     return str(adapter.get("native_type") or chart_type)
+
+
+def apply_native_chart_defaults(view: dict[str, Any], chart_type: str) -> None:
+    """Complete DTO fields required by handlers that cannot share the base template verbatim."""
+    if chart_type == "indicator":
+        for field in view.get("yAxis") or []:
+            field["chartType"] = "indicator"
+            field["compareCalc"] = {
+                "type": "none", "resultData": "percent", "field": None, "custom": None,
+            }
+        custom_attr = view.setdefault("customAttr", {})
+        custom_attr.setdefault("indicator", {
+            "show": True, "fontSize": 32, "color": "#5470C6ff",
+            "hPosition": "center", "vPosition": "center", "isItalic": False,
+            "isBolder": True, "fontFamily": "Microsoft YaHei", "letterSpace": 0,
+            "fontShadow": False, "suffixEnable": False, "suffix": "",
+            "suffixFontSize": 14, "suffixColor": "#5470C6ff",
+        })
+        custom_attr.setdefault("indicatorName", {
+            "show": True, "fontSize": 16, "color": "#646A73ff",
+            "isItalic": False, "isBolder": False, "fontFamily": "Microsoft YaHei",
+            "letterSpace": 0, "fontShadow": False, "nameValueSpacing": 8,
+            "namePosition": "bottom",
+        })
+        return
+
+    if chart_type not in {"map", "bubble-map", "heat-map", "flow-map"}:
+        return
+    geography = " ".join(
+        str(field.get(key) or "").lower()
+        for field in view.get("xAxis") or []
+        for key in ("name", "originName", "description", "dataeaseName")
+    )
+    china_geo_words = (
+        "province", "city", "county", "district", "prefecture",
+        "省", "市", "区县", "行政区", "地级",
+    )
+    if any(word in geography for word in china_geo_words):
+        view.setdefault("customAttr", {})["map"] = {"id": "156", "level": "country"}

@@ -9,10 +9,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .layout_planner import plan_smart_layouts
+from .layout_planner import plan_smart_layouts, recommended_dashboard_height
 from .field_binding import bind_field_metadata
-from .chart_catalog import SUPPORTED_CHART_TYPES, chart_adapter, native_chart_type
+from .chart_catalog import (
+    SUPPORTED_CHART_TYPES, apply_native_chart_defaults, chart_adapter, native_chart_type,
+)
 from .interaction_planner import build_query_component, normalize_interactions, shared_linkages
+from .theme_engine import BUILTIN_THEMES, color_with_alpha, resolve_theme
 
 from .visual_base import DataEaseChartEngine
 
@@ -26,14 +29,10 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
     ]
     SUPPORTED_AGGREGATIONS = {"sum", "avg", "max", "min", "count", "count_distinct", "last", "first", "none", "median", "stdev", "variance"}
     SUPPORTED_CHART_TYPES = SUPPORTED_CHART_TYPES
-    THEMES = {
-        "business-light": {"dark": False, "background": "#F5F6F7", "accent": "#1E90FF", "text": "#1F2329"},
-        "minimal-light": {"dark": False, "background": "#FFFFFF", "accent": "#5B5BD6", "text": "#242424"},
-        "neon-dark": {"dark": True, "background": "#050B1A", "accent": "#00D9FF", "text": "#DDF8FF"},
-        "deep-ocean": {"dark": True, "background": "#031525", "accent": "#26C6DA", "text": "#D8F3FF"},
-        "dark-gold": {"dark": True, "background": "#15120B", "accent": "#D6A84B", "text": "#F8E8BD"},
-        "tech-blue": {"dark": True, "background": "#071A3D", "accent": "#4D96FF", "text": "#E5F0FF"},
-    }
+    THEMES = BUILTIN_THEMES
+
+    def _theme(self, theme: Any) -> dict[str, Any]:
+        return resolve_theme(theme, skill_root=Path(__file__).resolve().parents[2])
 
     def _asset_data_uri(self, configured_path: str) -> str:
         if not configured_path:
@@ -48,19 +47,17 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         encoded = base64.b64encode(path.read_bytes()).decode("ascii")
         return f"data:{mime_type};base64,{encoded}"
 
-    def _apply_canvas_theme(self, canvas: dict[str, Any], theme: str) -> dict[str, Any]:
-        palette = self.THEMES[theme]
+    def _apply_canvas_theme(self, canvas: dict[str, Any], theme: Any) -> dict[str, Any]:
+        palette = self._theme(theme)
         if not palette["dark"]:
             canvas.update({"backgroundColor": palette["background"], "color": palette["text"]})
             canvas.setdefault("dashboard", {}).update({"themeColor": "light"})
             canvas.setdefault("component", {}).setdefault("chartTitle", {}).update({"color": palette["text"]})
             canvas["component"].setdefault("chartColor", {}).setdefault("basicStyle", {}).update({
-                "colors": [palette["accent"], "#20B2AA", "#7C5CFF", "#FFB347", "#FF6B8A"]
+                "colors": palette["colors"]
             })
             return canvas
         canvas.update({
-            "width": 1920,
-            "height": 1080,
             "screenAdaptor": "widthFirst",
             "dashboardAdaptor": "keepHeightAndWidth",
             "backgroundColorSelect": True,
@@ -74,7 +71,11 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             "scaleWidth": 100,
             "scaleHeight": 100,
         })
-        background = self._asset_data_uri(os.environ.get("DATAEASE_BACKGROUND_IMAGE", "").strip())
+        background_path = str(
+            palette.get("background_image")
+            or os.environ.get("DATAEASE_BACKGROUND_IMAGE", "").strip()
+        )
+        background = self._asset_data_uri(background_path)
         if background:
             canvas["backgroundImageEnable"] = True
             canvas["background"] = background
@@ -86,7 +87,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             "show": True, "fontSize": 18, "isBolder": True, "color": palette["text"]
         })
         component.setdefault("chartColor", {}).setdefault("basicStyle", {}).update({
-            "colors": self.NEON_COLORS,
+            "colors": palette["colors"],
             "gradient": True,
             "alpha": 92,
             "areaBaseColor": "rgba(3,12,29,0.35)",
@@ -103,11 +104,35 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         return canvas
 
     def _apply_component_theme(
-        self, component: dict[str, Any], view_info: dict[str, Any], chart_type: str, theme: str
+        self, component: dict[str, Any], view_info: dict[str, Any], chart_type: str, theme: Any
     ) -> None:
-        if not self.THEMES[theme]["dark"]:
+        palette = self._theme(theme)
+        if not palette["dark"]:
+            custom_attr = view_info.setdefault("customAttr", {})
+            custom_attr.setdefault("basicStyle", {}).update({
+                "colors": palette["colors"], "colorScheme": "custom", "gradient": False, "alpha": 100,
+                "areaBaseColor": palette["background"], "areaBorderColor": palette["accent"],
+            })
+            custom_attr.setdefault("misc", {}).update({
+                "nameFontColor": palette["text"], "valueFontColor": palette["accent"],
+            })
+            custom_attr.setdefault("label", {}).update({"color": palette["text"], "fontSize": 12})
+            custom_attr.setdefault("tooltip", {}).update({
+                "color": palette["text"], "backgroundColor": "#FFFFFF",
+            })
+            custom_attr.setdefault("tableHeader", {}).update({
+                "tableHeaderBgColor": palette["accent"],
+                "tableHeaderCornerBgColor": palette["accent"],
+                "tableHeaderColBgColor": palette["accent"],
+                "tableHeaderFontColor": "#FFFFFF",
+                "tableHeaderCornerFontColor": "#FFFFFF",
+                "tableHeaderColFontColor": "#FFFFFF",
+            })
+            custom_attr.setdefault("tableCell", {}).update({
+                "tableItemBgColor": palette["background"],
+                "tableFontColor": palette["text"],
+            })
             return
-        palette = self.THEMES[theme]
         component.setdefault("style", {}).update({
             "borderActive": True,
             "borderWidth": 1,
@@ -129,7 +154,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         }
         custom_attr = view_info.setdefault("customAttr", {})
         custom_attr.setdefault("basicStyle", {}).update({
-            "colors": self.NEON_COLORS,
+            "colors": palette["colors"],
             "colorScheme": "custom",
             "gradient": True,
             "alpha": 94,
@@ -142,24 +167,33 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             "barWidth": 34,
             "radius": 76,
             "innerRadius": 52,
-            "tableBorderColor": "rgba(0,217,255,0.28)",
-            "tableScrollBarColor": "rgba(0,217,255,0.45)",
+            "tableBorderColor": color_with_alpha(palette["accent"], 0.28),
+            "tableScrollBarColor": color_with_alpha(palette["accent"], 0.45),
         })
-        custom_attr.setdefault("misc", {}).update({"nameFontColor": "#BDEBFF", "valueFontColor": "#00D9FF"})
+        custom_attr.setdefault("misc", {}).update({
+            "nameFontColor": palette["text"], "valueFontColor": palette["accent"],
+        })
+        if chart_type == "indicator":
+            custom_attr.setdefault("indicator", {}).update({
+                "color": f"{palette['accent']}FF", "suffixColor": f"{palette['accent']}FF",
+            })
+            custom_attr.setdefault("indicatorName", {}).update({
+                "color": f"{palette['text']}FF",
+            })
         label = custom_attr.setdefault("label", {})
-        label.update({"color": "#EAF8FF", "fontSize": 12})
-        if chart_type == "pie":
+        label.update({"color": palette["text"], "fontSize": 12})
+        if chart_type in {"pie", "pie-donut"}:
             label.update({"show": True, "position": "outside", "showProportion": True})
         if chart_type == "candle":
             custom_attr.setdefault("basicStyle", {}).update({
                 "candleUpColor": "#EF5350",
                 "candleDownColor": "#26A69A",
-                "candleLineColor": "rgba(0,217,255,0.48)",
+                "candleLineColor": color_with_alpha(palette["accent"], 0.48),
             })
         if chart_type == "gauge":
             custom_attr.setdefault("misc", {}).update({
-                "valueFontColor": "#00D9FF",
-                "nameFontColor": "#BDEBFF",
+                "valueFontColor": palette["accent"],
+                "nameFontColor": palette["text"],
                 "gaugeStartAngle": 225,
                 "gaugeEndAngle": -45,
             })
@@ -167,41 +201,41 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             custom_attr.setdefault("basicStyle", {}).update({
                 "waterfallIncreaseColor": "#EF5350",
                 "waterfallDecreaseColor": "#26A69A",
-                "waterfallTotalColor": "#00D9FF",
+                "waterfallTotalColor": palette["accent"],
             })
         custom_attr.setdefault("tooltip", {}).update({
-            "color": "#EAF8FF", "backgroundColor": "rgba(4,14,34,0.94)"
+            "color": palette["text"], "backgroundColor": color_with_alpha(palette["background"], 0.94)
         })
         custom_attr.setdefault("tableHeader", {}).update({
-            "tableHeaderBgColor": "rgba(0,217,255,0.20)",
-            "tableHeaderCornerBgColor": "rgba(0,217,255,0.24)",
-            "tableHeaderColBgColor": "rgba(0,217,255,0.20)",
-            "tableHeaderFontColor": "#EAF8FF",
-            "tableHeaderCornerFontColor": "#EAF8FF",
-            "tableHeaderColFontColor": "#EAF8FF",
+            "tableHeaderBgColor": color_with_alpha(palette["accent"], 0.20),
+            "tableHeaderCornerBgColor": color_with_alpha(palette["accent"], 0.24),
+            "tableHeaderColBgColor": color_with_alpha(palette["accent"], 0.20),
+            "tableHeaderFontColor": palette["text"],
+            "tableHeaderCornerFontColor": palette["text"],
+            "tableHeaderColFontColor": palette["text"],
         })
         custom_attr.setdefault("tableCell", {}).update({
             "tableItemBgColor": "rgba(3,12,29,0.18)",
-            "tableItemSubBgColor": "rgba(0,217,255,0.08)",
-            "tableFontColor": "#CDEFFF",
+            "tableItemSubBgColor": color_with_alpha(palette["accent"], 0.08),
+            "tableFontColor": palette["text"],
         })
         custom_style = view_info.setdefault("customStyle", {})
         custom_style.setdefault("text", {}).update({
             "show": True,
             "fontSize": 18,
             "isBolder": True,
-            "color": "#DDF8FF",
+            "color": palette["text"],
             "remarkBackgroundColor": "rgba(3,12,29,0.85)",
         })
         custom_style.setdefault("legend", {}).update({
-            "show": True, "color": "#B7D9EF", "fontSize": 12, "icon": "circle"
+            "show": True, "color": palette["text"], "fontSize": 12, "icon": "circle"
         })
         for axis_name in ("xAxis", "yAxis", "yAxisExt", "misc"):
             axis = custom_style.setdefault(axis_name, {})
-            axis.update({"color": "#9BC7E5", "fontSize": 12})
-            axis.setdefault("axisLabel", {}).update({"color": "#9BC7E5", "fontSize": 12})
+            axis.update({"color": palette["text"], "fontSize": 12})
+            axis.setdefault("axisLabel", {}).update({"color": palette["text"], "fontSize": 12})
             axis.setdefault("axisLine", {}).setdefault("lineStyle", {}).update({
-                "color": "rgba(0,217,255,0.28)", "width": 1
+                "color": color_with_alpha(palette["accent"], 0.28), "width": 1
             })
             axis.setdefault("splitLine", {}).setdefault("lineStyle", {}).update({
                 "color": "rgba(122,184,224,0.16)", "width": 1
@@ -348,7 +382,8 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         component["innerType"] = native_type
         component["icon"] = native_type
         component["category"] = str(adapter.get("category") or component.get("category") or "base")
-        component["render"] = view_info["render"]
+        component.setdefault("events", {}).setdefault("jump", {"value": "https://", "type": "_blank"})
+        apply_native_chart_defaults(view_info, native_type)
         if title:
             component.update({"name": title, "label": title})
         layout = layout.get("layout", layout)
@@ -450,7 +485,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         title: str,
         charts_config: List[Dict[str, Any]],
         busi_type: str = "dashboard",
-        theme: str = "business-light",
+        theme: Any = "business-light",
         canvas_config: dict[str, Any] | None = None,
         interactions: dict[str, Any] | None = None,
         publish: bool = True,
@@ -458,8 +493,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
     ) -> tuple[str, str]:
         if busi_type not in {"dashboard", "dataV"}:
             raise ValueError("busi_type must be dashboard or dataV")
-        if theme not in self.THEMES:
-            raise ValueError(f"theme must be one of: {', '.join(self.THEMES)}")
+        palette = self._theme(theme)
         if not charts_config:
             raise ValueError("charts_config must not be empty")
         unsupported = sorted({str(item.get("type")) for item in charts_config} - self.SUPPORTED_CHART_TYPES)
@@ -478,6 +512,15 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 canvas_style["screenAdaptor"] = str(canvas_config["screen_adaptor"])
         canvas_style = self._apply_canvas_theme(canvas_style, theme)
         interaction_plan = normalize_interactions(interactions)
+        reserved_top_rows = (
+            4 if interaction_plan["filters"] and not any(item.get("layout") for item in charts_config) else 0
+        )
+        if busi_type == "dashboard" and not canvas_config and not any(item.get("layout") for item in charts_config):
+            canvas_style["height"] = recommended_dashboard_height(
+                charts_config,
+                reserved_top_rows=reserved_top_rows,
+                base_height=int(canvas_style.get("height") or 1080),
+            )
 
         component_data: list[dict[str, Any]] = []
         canvas_view_info: dict[str, Any] = {}
@@ -487,7 +530,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             charts_config,
             canvas_width=int(canvas_style.get("width", 1920)),
             canvas_height=int(canvas_style.get("height", 1080)),
-            reserved_top_rows=4 if interaction_plan["filters"] and not any(item.get("layout") for item in charts_config) else 0,
+            reserved_top_rows=reserved_top_rows,
         )
         for index, config in enumerate(charts_config):
             view_id = chart_view_ids[index]
@@ -546,6 +589,10 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 query_id, str(filter_ctx["DATASET_GROUP_ID"]), filter_fields, target_ids,
                 canvas_width=int(canvas_style.get("width", 1920)),
                 canvas_height=int(canvas_style.get("height", 1080)),
+                dataset_fields=filter_ctx.get("ALL_FIELD_METADATA"),
+                cascade_chains=interaction_plan["filter_cascades"],
+                background_color=str(canvas_style.get("backgroundColor") or "#FFFFFF"),
+                accent_color=str(palette["accent"]),
             )
             query_component["_dragId"] = len(component_data)
             component_data.append(query_component)

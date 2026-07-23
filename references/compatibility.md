@@ -56,6 +56,20 @@ Do not make `--break-system-packages` the default installation path. On Debian/U
 
 This table is not a promise that every release of every listed client implements the same Skill schema. Agent Skills support is evolving; test discovery, command execution, plan persistence and artifact delivery in the intended client before calling it production-supported.
 
+## Model capability compatibility
+
+Multimodal understanding is optional. The authoritative creation path uses dataset metadata, deterministic semantic classification, fixed DTO adapters, smart-grid layout, theme luminance/contrast calculation, real chart-data calls and DOM counters. A model never needs to infer component coordinates, field IDs, colors or success from a screenshot.
+
+| Model capability | Recommended workflow | Expected result |
+|---|---|---|
+| Text-only or smaller model | `visual autopilot --complexity compact` | Up to 6 components, deterministic theme/layout/interactions and machine-readable QA |
+| Mainstream tool-using model | `visual autopilot --complexity standard` | Up to 10 components with richer chart diversity and detail preservation |
+| Strong reasoning or multimodal model | `visual autopilot --complexity rich` or reviewed custom spec | Up to 16 components; visual inspection may guide optional aesthetic refinement |
+
+Treat screenshots and SVG previews as optional presentation artifacts. Determine success from `quality.ready`, `quality.score`, `verification.chart_data_checks`, `query_capture`, publish status and capture render-state fields. A client that cannot display images can still return their paths and the DataEase preview URL.
+
+`model_compatibility.multimodal_required=false` means the workflow is structurally complete without image understanding. It does not remove the runtime requirements for Python, network access, plan persistence or exact command execution.
+
 ## Host-specific output
 
 - Codex: return absolute Markdown links or image paths.

@@ -10,6 +10,7 @@ if str(SCRIPTS) not in sys.path:
 
 from dataease_skill.visual_engine import MultiDataEaseChartEngine
 from dataease_skill.chart_catalog import SUPPORTED_CHART_TYPES
+from dataease_skill.layout_planner import plan_smart_layouts, recommended_dashboard_height
 
 
 class LayoutTests(unittest.TestCase):
@@ -35,9 +36,45 @@ class LayoutTests(unittest.TestCase):
 
     def test_extended_theme_catalog(self):
         engine = object.__new__(MultiDataEaseChartEngine)
-        for theme in ("business-light", "minimal-light", "neon-dark", "deep-ocean", "dark-gold", "tech-blue"):
+        for theme in (
+            "business-light", "minimal-light", "neon-dark", "deep-ocean", "dark-gold",
+            "tech-blue", "chinese-red", "government-blue", "medical-health",
+            "energy-green", "retail-vibrant",
+        ):
             canvas = engine._apply_canvas_theme({"dashboard": {}, "component": {}}, theme)
             self.assertTrue(canvas["backgroundColor"])
+
+    def test_custom_theme_is_applied(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        canvas = engine._apply_canvas_theme(
+            {"dashboard": {}, "component": {}},
+            {"base": "business-light", "accent": "#663399", "background": "#FAFAFA"},
+        )
+        self.assertEqual(canvas["backgroundColor"], "#FAFAFA")
+        self.assertEqual(canvas["component"]["chartColor"]["basicStyle"]["colors"][0], "#663399")
+
+    def test_light_brand_theme_reaches_chart_palette(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        component, view = {}, {}
+        engine._apply_component_theme(
+            component, view, "bar",
+            {"base": "business-light", "accent": "#008C85", "background": "#F2FBFA"},
+        )
+        self.assertEqual(view["customAttr"]["basicStyle"]["colors"][0], "#008C85")
+        self.assertEqual(view["customAttr"]["misc"]["valueFontColor"], "#008C85")
+
+    def test_dark_industry_theme_reaches_indicator_and_table_styles(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        component, view = {}, {
+            "customAttr": {
+                "indicator": {"color": "#5470C6ff"},
+                "indicatorName": {"color": "#646A73ff"},
+            }
+        }
+        engine._apply_component_theme(component, view, "indicator", "energy-green")
+        self.assertEqual(view["customAttr"]["indicator"]["color"], "#35D07FFF")
+        self.assertEqual(view["customAttr"]["misc"]["valueFontColor"], "#35D07F")
+        self.assertIn("53,208,127", view["customAttr"]["tableHeader"]["tableHeaderBgColor"])
 
     def test_common_chart_families_have_real_adapters(self):
         expected = {
@@ -62,6 +99,11 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(view["type"], "indicator")
         self.assertEqual(view["render"], "custom")
         self.assertEqual(component["innerType"], "indicator")
+        self.assertEqual(view["xAxis"][0]["summary"], "none")
+        self.assertEqual(view["yAxis"][0]["compareCalc"]["type"], "none")
+        self.assertIn("indicator", view["customAttr"])
+        self.assertIn("indicatorName", view["customAttr"])
+        self.assertEqual(component["events"]["jump"]["type"], "_blank")
 
     def test_every_catalog_adapter_renders_and_binds_fields(self):
         engine = object.__new__(MultiDataEaseChartEngine)
@@ -85,6 +127,21 @@ class LayoutTests(unittest.TestCase):
                 self.assertTrue(_find_fields(view, "22"))
                 if chart_type == "flow-map":
                     self.assertTrue(_find_fields(view.get("xAxisExt", []), "12"))
+                if chart_type in {"map", "bubble-map", "heat-map", "flow-map"}:
+                    self.assertEqual(view["customAttr"]["map"], {"id": "156", "level": "country"})
+
+    def test_dense_dashboard_recommends_readable_scroll_height(self):
+        charts = [
+            *[{"type": "indicator", "intent": "kpi"} for _ in range(4)],
+            {"type": "map"}, {"type": "map"}, {"type": "line", "intent": "trend"},
+            {"type": "pie", "intent": "composition"}, {"type": "bar-horizontal", "intent": "ranking"},
+            {"type": "bar"}, {"type": "table_info", "intent": "detail"},
+        ]
+        height = recommended_dashboard_height(charts, reserved_top_rows=4)
+        layouts = plan_smart_layouts(charts, canvas_height=height, reserved_top_rows=4)
+        self.assertEqual(height, 1440)
+        self.assertGreaterEqual(min(item["height"] for item in layouts[4:10]), 240)
+        self.assertGreaterEqual(layouts[-1]["height"], 320)
 
     def test_custom_4k_canvas_scales_datav_pixel_layout(self):
         engine = object.__new__(MultiDataEaseChartEngine)
@@ -103,6 +160,14 @@ class LayoutTests(unittest.TestCase):
         component = json.loads(engine.client.saved_payload["componentData"])[0]
         self.assertEqual((canvas["width"], canvas["height"]), (3840, 2160))
         self.assertEqual((component["style"]["width"], component["style"]["height"]), (3840, 2160))
+
+    def test_dark_theme_preserves_explicit_canvas_size(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        canvas = engine._apply_canvas_theme(
+            {"width": 3840, "height": 2160, "dashboard": {}, "component": {}},
+            "tech-blue",
+        )
+        self.assertEqual((canvas["width"], canvas["height"]), (3840, 2160))
 
     def test_missing_optional_background_falls_back_to_theme_color(self):
         engine = object.__new__(MultiDataEaseChartEngine)

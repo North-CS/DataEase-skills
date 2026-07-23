@@ -29,6 +29,8 @@ from .runtime import runtime_diagnostics
 from .safety import PlanStore
 from .settings_ops import handle_settings_operation
 from .solution_ops import handle_solution_operation
+from .theme_engine import recommend_theme_names, render_theme_previews, resolve_theme
+from .visual_quality import apply_complexity_profile, score_visual_spec
 from .trees import flatten_tree
 from .transfer_ops import handle_transfer_operation
 from .versioning import adapter_for_client
@@ -170,20 +172,36 @@ def _capture(settings: Settings, resource_id: str, busi_type: str, pixel: str) -
         "DATAEASE_ORG_ID": settings.org_id,
         "DATAEASE_X_DE_TOKEN": settings.x_de_token,
         "DATAEASE_TIMEOUT": str(settings.timeout),
+        "DATAEASE_CANVAS_TIMEOUT_MS": str(
+            max(30000, min(120000, int(settings.timeout * 2000)))
+        ),
         "DATAEASE_VERIFY_SSL": str(settings.verify_ssl).lower(),
         "DATAEASE_CA_BUNDLE": settings.ca_bundle,
         "DATAEASE_OUTPUT_DIR": str(settings.output_dir),
     }
     child_env.update({key: value for key, value in configured_env.items() if value})
-    process = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=max(180, int(settings.timeout)),
-        env=child_env,
-    )
+    process = None
+    for attempt in range(2):
+        process = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=max(180, int(settings.timeout)),
+            env=child_env,
+        )
+        combined = f"{process.stderr}\n{process.stdout}"
+        transient_empty_page = any(marker in combined for marker in (
+            "ERR_INCOMPLETE_CHUNKED_ENCODING",
+            '"hasCanvas":false',
+            '"bodyText":""',
+            '"appHtml":""',
+        ))
+        if process.returncode == 0 or not transient_empty_page or attempt == 1:
+            break
+        time.sleep(1)
+    assert process is not None
     if process.returncode != 0:
         raise DataEaseError(
             process.stderr.strip() or process.stdout.strip() or "截图失败",
@@ -196,6 +214,91 @@ def _capture(settings: Settings, resource_id: str, busi_type: str, pixel: str) -
         raise DataEaseError("截图脚本返回了非 JSON 内容", code="invalid_capture_response", stage="capture") from exc
 
 
+def _capture_pixel_from_detail(detail: dict[str, Any], requested: str = "") -> str:
+    if requested:
+        return requested
+    canvas = detail.get("canvasStyleData") or {}
+    if isinstance(canvas, str):
+        try:
+            canvas = json.loads(canvas)
+        except json.JSONDecodeError:
+            canvas = {}
+    if not isinstance(canvas, dict):
+        canvas = {}
+    width = int(canvas.get("width") or 1920)
+    height = int(canvas.get("height") or 1080)
+    return f"{max(320, min(width, 16384))}*{max(320, min(height, 16384))}"
+
+
+def _validate_query_capture(capture: dict[str, Any], expected_count: int) -> dict[str, int]:
+    state = ((capture.get("capture_meta") or {}).get("renderState") or {})
+    summary = {
+        "visible_query_components": int(state.get("visibleQueryComponents") or 0),
+        "visible_query_conditions": int(state.get("visibleQueryConditions") or 0),
+    }
+    if expected_count and (
+        summary["visible_query_components"] < 1
+        or summary["visible_query_conditions"] < expected_count
+    ):
+        raise DataEaseError(
+            "查询组件已保存但发布预览中未完整显示",
+            code="query_component_not_visible",
+            stage="verification",
+            details={"expected_conditions": expected_count, **summary},
+        )
+    return summary
+
+
+def _validate_visual_chart_data(client: DataEaseClient, detail: dict[str, Any]) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    for view_id, raw_view in (detail.get("canvasViewInfo") or {}).items():
+        if not isinstance(raw_view, dict) or raw_view.get("type") == "VQuery":
+            continue
+        payload = dict(raw_view)
+        payload.update({
+            "xaxis": raw_view.get("xAxis") or [],
+            "xaxisExt": raw_view.get("xAxisExt") or [],
+            "yaxis": raw_view.get("yAxis") or [],
+            "yaxisExt": raw_view.get("yAxisExt") or [],
+        })
+        try:
+            response = client.data("POST", "/chartData/getData", payload)
+            results.append({
+                "view_id": str(view_id), "title": raw_view.get("title"),
+                "type": raw_view.get("type"), "ok": True,
+                "has_response": isinstance(response, dict),
+            })
+        except DataEaseError as exc:
+            failure = {
+                "view_id": str(view_id), "title": raw_view.get("title"),
+                "type": raw_view.get("type"), "error": str(exc)[:500],
+            }
+            failures.append(failure)
+            results.append({**failure, "ok": False})
+    if failures:
+        raise DataEaseError(
+            f"{len(failures)} 个图表真实数据请求失败",
+            code="visual_chart_data_failed",
+            stage="verification",
+            details={"failures": failures},
+        )
+    return results
+
+
+def _compensate_created_visual(
+    client: DataEaseClient, resource_id: str, busi_type: str,
+) -> dict[str, Any]:
+    try:
+        client.data("POST", f"/dataVisualization/deleteLogic/{resource_id}/{busi_type}")
+        return {"attempted": True, "deleted": True, "resource_id": resource_id}
+    except Exception as exc:
+        return {
+            "attempted": True, "deleted": False, "resource_id": resource_id,
+            "error": str(exc)[:500],
+        }
+
+
 def _visual_create(
     args: argparse.Namespace,
     settings: Settings,
@@ -204,7 +307,7 @@ def _visual_create(
     audit: AuditLog,
 ) -> dict[str, Any]:
     if not args.apply:
-        spec = _load_spec(args.spec)
+        spec = getattr(args, "inline_spec", None) or _load_spec(args.spec)
         title = str(spec.get("title") or "智能分析")
         busi_type = str(spec.get("kind") or "dashboard")
         if busi_type not in {"dashboard", "dataV"}:
@@ -212,6 +315,13 @@ def _visual_create(
         charts = spec.get("charts")
         if not isinstance(charts, list) or not charts:
             raise DataEaseError("配置中必须包含非空 charts", code="invalid_spec", stage="input")
+        selected_theme = spec.get("theme") or ("neon-dark" if busi_type == "dataV" else "business-light")
+        resolved_theme = resolve_theme(selected_theme, skill_root=settings.skill_root)
+        theme_candidates = recommend_theme_names(title, busi_type, selected_theme)
+        theme_previews = render_theme_previews(
+            settings.output_dir, title, busi_type, theme_candidates, skill_root=settings.skill_root,
+        )
+        quality = score_visual_spec(spec, skill_root=settings.skill_root)
         plan = plans.create(
             "visual.create",
             target={"name": title, "type": busi_type},
@@ -221,7 +331,21 @@ def _visual_create(
             rollback={"strategy": "delete-created-resource", "requires_confirmation": True},
             context=_plan_context(client),
         )
-        return _envelope("visual.create", plan, mode="dry-run", changes=plan["changes"])
+        return _envelope(
+            "visual.create", plan, mode="dry-run", changes=plan["changes"],
+            theme={"selected": resolved_theme, "candidates": theme_previews},
+            quality=quality,
+            design_inspiration=spec.get("design_inspiration"),
+            layout_strategy=spec.get("layout_strategy"),
+            model_compatibility={
+                "multimodal_required": False,
+                "screenshot_interpretation_required": False,
+                "deterministic_layout": True,
+                "deterministic_theme_contrast": True,
+                "machine_readable_verification": True,
+            },
+            artifacts=[item["preview"] for item in theme_previews],
+        )
 
     if not args.plan_id:
         raise DataEaseError("执行创建需要 --plan-id", code="plan_required", stage="safety")
@@ -241,7 +365,7 @@ def _visual_create(
         str(spec.get("title") or "智能分析"),
         spec["charts"],
         busi_type=str(spec.get("kind") or "dashboard"),
-        theme=str(spec.get("theme") or "business-light"),
+        theme=spec.get("theme") or "business-light",
         canvas_config=spec.get("canvas") if isinstance(spec.get("canvas"), dict) else None,
         interactions=spec.get("interactions") if isinstance(spec.get("interactions"), dict) else None,
         publish=True,
@@ -262,14 +386,41 @@ def _visual_create(
     expected_filters = (spec.get("interactions") or {}).get("filters") if isinstance(spec.get("interactions"), dict) else []
     query_count = sum(1 for item in components if isinstance(item, dict) and item.get("component") == "VQuery")
     if expected_filters and query_count < 1:
-        raise DataEaseError("智能查询组件创建后回读缺失", code="query_component_missing", stage="verification")
+        cleanup = _compensate_created_visual(client, str(dashboard_id), str(spec.get("kind") or "dashboard"))
+        raise DataEaseError(
+            "智能查询组件创建后回读缺失", code="query_component_missing", stage="verification",
+            details={"cleanup": cleanup},
+        )
+    try:
+        chart_data_checks = _validate_visual_chart_data(client, detail)
+    except DataEaseError as exc:
+        cleanup = _compensate_created_visual(client, str(dashboard_id), str(spec.get("kind") or "dashboard"))
+        raise DataEaseError(
+            str(exc), code=exc.code, stage=exc.stage,
+            details={**(exc.details or {}), "cleanup": cleanup},
+        ) from exc
     linkage_summary: Any = None
     if isinstance(spec.get("interactions"), dict) and spec["interactions"].get("linkage"):
         version, adapter = adapter_for_client(client)
         linkage_summary = client.data("GET", adapter.linkage_all_path(str(dashboard_id), "snapshot"))
     capture = None
     if not args.no_capture:
-        capture = _capture(settings, str(dashboard_id), str(spec.get("kind") or "dashboard"), args.pixel)
+        try:
+            capture = _capture(
+                settings,
+                str(dashboard_id),
+                str(spec.get("kind") or "dashboard"),
+                _capture_pixel_from_detail(detail, args.pixel),
+            )
+            query_capture = _validate_query_capture(capture, len(expected_filters or []))
+        except DataEaseError as exc:
+            cleanup = _compensate_created_visual(
+                client, str(dashboard_id), str(spec.get("kind") or "dashboard")
+            )
+            raise DataEaseError(
+                str(exc), code=exc.code, stage=exc.stage,
+                details={**(exc.details or {}), "cleanup": cleanup},
+            ) from exc
     result = {
         "id": str(dashboard_id),
         "name": spec.get("title"),
@@ -280,7 +431,9 @@ def _visual_create(
         "verification": {
             "component_count": len(components),
             "query_component_count": query_count,
+            "chart_data_checks": chart_data_checks,
             "linkages": linkage_summary,
+            "query_capture": query_capture if capture is not None else None,
         },
     }
     audit_id = audit.write(
@@ -1228,7 +1381,27 @@ def build_parser() -> argparse.ArgumentParser:
     visual_create.add_argument("--plan-id", default="")
     visual_create.add_argument("--confirm-token", default="")
     visual_create.add_argument("--no-capture", action="store_true")
-    visual_create.add_argument("--pixel", default="1920*1080")
+    visual_create.add_argument(
+        "--pixel",
+        default="",
+        help="截图尺寸（宽*高）；省略时使用创建后画布的真实尺寸",
+    )
+    visual_autopilot = visual_actions.add_parser(
+        "autopilot",
+        help="低模型能力兼容入口：仅凭数据集和标题确定性生成完整 visual spec",
+    )
+    visual_autopilot.add_argument("--dataset", action="append", default=[])
+    visual_autopilot.add_argument("--title", default="")
+    visual_autopilot.add_argument("--busi-type", choices=("dashboard", "dataV"), default="dashboard")
+    visual_autopilot.add_argument("--theme", default="")
+    visual_autopilot.add_argument(
+        "--complexity", choices=("compact", "standard", "rich"), default="standard",
+    )
+    visual_autopilot.add_argument("--apply", action="store_true")
+    visual_autopilot.add_argument("--plan-id", default="")
+    visual_autopilot.add_argument("--confirm-token", default="")
+    visual_autopilot.add_argument("--no-capture", action="store_true")
+    visual_autopilot.add_argument("--pixel", default="")
     visual_publish = visual_actions.add_parser("publish")
     visual_publish.add_argument("--resource-id", default="")
     visual_publish.add_argument("--name", default="")
@@ -1575,6 +1748,21 @@ def run(argv: list[str] | None = None) -> int:
             elif key in {"visual.inspect", "visual.patch", "visual.linkage"}:
                 result = handle_visual_operation(args, settings, client, plans, audit)
             elif key == "visual.create":
+                result = _visual_create(args, settings, client, plans, audit)
+            elif key == "visual.autopilot":
+                if not args.apply:
+                    if not args.dataset or not str(args.title).strip():
+                        raise DataEaseError(
+                            "autopilot dry-run 需要 --dataset 与 --title",
+                            code="invalid_input", stage="input",
+                        )
+                    profiles = [datasets.profile(dataset_name) for dataset_name in args.dataset]
+                    spec = build_visual_plan(profiles, str(args.title), str(args.busi_type))
+                    spec = apply_complexity_profile(spec, str(args.complexity))
+                    if args.theme:
+                        spec["theme"] = args.theme
+                    args.inline_spec = spec
+                    args.spec = "-"
                 result = _visual_create(args, settings, client, plans, audit)
             elif key == "visual.publish":
                 result = _visual_publish(args, client, plans, audit)

@@ -87,6 +87,9 @@ class DataEaseChartEngine:
             "DATASET_GROUP_ID": dataset_id,
             "DATASOURCE_ID": datasource_id,
             "DATASET_TABLE_ID": table_id,
+            "ALL_FIELD_METADATA": [
+                normalized_field_metadata(field, str(dataset_id)) for field in fields
+            ],
         }
 
         # Map axis fields (supports multi-measure if needed)

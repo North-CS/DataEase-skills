@@ -33,7 +33,8 @@
     }
   ],
   "interactions": {
-    "filters": ["日期", "区域"],
+    "filters": ["日期", "大区", "省级行政区", "城市"],
+    "filter_cascades": [["大区", "省级行政区", "城市"]],
     "linkage": true,
     "drill_hierarchies": [
       {"chart": "各区域销售额", "fields": ["省", "市", "区县"]}
@@ -45,18 +46,46 @@
 }
 ```
 
-`kind` accepts `dashboard` or `dataV`. Built-in themes are `business-light`, `minimal-light`, `neon-dark`, `deep-ocean`, `dark-gold`, `tech-blue`. Optional `canvas` accepts a 320–16384 pixel width/height and `screen_adaptor`; DataV pixel geometry is recalculated for that target size, while dashboards retain their responsive grid. Configure a local background with `DATAEASE_BACKGROUND_IMAGE`; it is embedded into the canvas as a data URI.
+`kind` accepts `dashboard` or `dataV`. Built-in themes are `business-light`, `minimal-light`, `neon-dark`, `deep-ocean`, `dark-gold`, `tech-blue`, `chinese-red`, `government-blue`, `medical-health`, `energy-green`, and `retail-vibrant`. Optional `canvas` accepts a 320–16384 pixel width/height and `screen_adaptor`; DataV pixel geometry is recalculated for that target size, while dashboards retain their responsive grid. Configure a local background with `DATAEASE_BACKGROUND_IMAGE`; it is embedded into the canvas as a data URI.
 If the optional background file is missing, the engine reports a warning and safely falls back to the theme color.
 
-`interactions.filters` creates a real `VQuery` component bound to authoritative dataset-field metadata. `linkage` automatically links only chart views from the same dataset that share an x-axis field. `drill_hierarchies` enables field-level drill metadata, and `jumps` writes an explicit URL event. The planner can infer common geography, product and organization hierarchies, but custom business hierarchies and target URLs must be stated or reviewed. Cross-dataset linkage, arbitrary SQL relationships and page-to-page parameter contracts are never guessed.
+Use a custom or corporate-brand theme when a built-in theme is insufficient:
+
+```json
+{
+  "theme": {
+    "base": "corporate-brand",
+    "name": "FIT2CLOUD 品牌主题",
+    "logo": "assets/company-logo.png",
+    "background": "#071A3D",
+    "text": "auto"
+  }
+}
+```
+
+Allowed custom fields are `base`, `name`, `accent`/`primary`, `background`, `text`, `colors`, `logo`, `background_image`, and `dark`. `colors` requires at least three `#RRGGBB` values. PNG/JPG assets use local Pillow quantization; SVG assets use their declared colors. Assets are never uploaded for palette extraction. An explicit brand color derives a harmonious five-color chart palette when `colors` is omitted. `text: "auto"` chooses the higher-contrast light/dark foreground; a low-contrast explicit text color is corrected and reported in the resolved theme metadata.
+
+The `visual create` dry-run validates the theme and writes three self-contained SVG previews under `output/theme-previews`: the selected theme, a title-inferred industry theme, and a contrasting alternative. The dry-run response returns each preview path and fully resolved palette. Review or open these files, set the chosen `theme`, then apply the unchanged plan. Preview generation does not create a DataEase resource.
+
+Dashboard and DataV use the same resolved theme contract. DataV additionally applies the palette to fixed-canvas component borders, indicator values/names, map series, line/area series, pie labels and legends, table headers/cells, axes, tooltips and VQuery controls. Explicit DataV canvas dimensions remain authoritative and every smart-grid layout is converted to matching pixels. A transient empty preview caused by an interrupted/chunked frontend response receives one bounded retry; a second failure, a mounted-but-invalid canvas, missing query controls or failed chart-data call still fails verification and triggers compensating cleanup during create.
+
+`interactions.filters` creates a real `VQuery` component bound to authoritative dataset-field metadata. Its conditions carry the complete dataset field catalog and its component envelope includes DataEase's native visibility, category, event and background fields. `filter_cascades` declares ordered, same-dataset query cascades; when omitted or set to `"auto"`, the planner safely infers adjacent geography, product and organization chains such as 大区→省→市. Set it to `false` to force parallel filters. Custom business hierarchies must be explicit. The generated native cascade DTO binds each level to its real query-condition and field IDs.
+
+Query styling is background-aware. The planner calculates the canvas background luminance and writes a complete native `VQuery.customStyle.component`: dark canvases receive light labels/placeholders, translucent dark inputs and high-contrast borders; light canvases receive dark labels and white inputs. The query button inherits the active theme accent.
+
+Browser verification requires both a visible `.v-query-container` and at least the requested number of visible `.query-item` controls; a saved but blank query component fails creation and triggers compensating cleanup. `linkage` automatically links only chart views from the same dataset that share an x-axis field. `drill_hierarchies` enables field-level drill metadata, and `jumps` writes an explicit URL event. Cross-dataset cascades/linkage, arbitrary SQL relationships and page-to-page parameter contracts are never guessed.
 
 `dataset plan` can emit a v2 spec from several datasets. Each chart still binds to one DataEase dataset; `dataset_relationships` are review candidates, not executed joins. The semantic layout planner classifies KPI, trend, composition, ranking, comparison and detail components. It places KPI cards first, gives trends more width, uses composition charts as companions and reserves full-width bottom rows for detail tables. Dashboard uses the generated responsive 72×36 grid; DataV also receives matching canvas pixels. Custom `layout` values remain authoritative, and grid-only DataV layouts are completed without replacing explicit pixels.
+
+High-density dashboards are not compressed into an unreadable 1080-pixel canvas. When neither an explicit canvas nor explicit component layouts are supplied, semantic-v2 estimates the required height from KPI, analytical and detail rows and creates a vertically expanded dashboard. Capture defaults to the saved canvas dimensions, so a 1920×1440 dashboard is validated at 1920×1440 rather than scaled into 1920×1080. Explicit canvas dimensions remain authoritative for both light and dark themes; fixed-screen DataV does not receive dashboard scrolling behavior.
 
 The planner classifies ID/code fields as identifiers instead of summable measures. Identifier-only datasets use `count_distinct` as an explicit fallback, while rate, ratio, percentage and average fields prefer `avg`; each chart carries aligned `y_aggregations`, and the visual engine writes those values into the DataEase view DTO. All generated KPI definitions remain candidates until their business meaning and aggregation are confirmed.
 
 Chart creation binds the complete authoritative dataset-field DTO (`originName`, `dataeaseName`, `deType`, `groupType`, datasource/table IDs and related metadata) into every rendered axis occurrence. Do not rename template fields without replacing this metadata: DataEase marks mismatched fields red and later edits may drop them.
 
 The v2.10.25 adapter catalog supports 32 callable names across indicator/gauge, line/area, bar variants, pie variants, detail/normal/pivot/heat tables, regional/bubble/flow/heat/symbol maps, scatter, funnel, radar, treemap, word cloud, candle and waterfall. `table_info` is retained as a compatibility alias for native `table-info`. Flow maps require origin and destination as the first two `x_axis` fields. Each adapter writes the native DataEase `type`, `render` and `category` and retains authoritative field DTO binding. This is the Skill's common-chart set, not every chart exposed by DataEase; unsupported types fail before mutation.
+
+For regional map families, province/city/county/district semantics select DataEase's China country map (`id=156`, `level=country`). Longitude/latitude symbolic maps retain the world/coordinate configuration. A successful map data request is not treated as visual success when the required administrative map scope is absent.
 
 Automatic planning publishes both `supported_chart_types` and the narrower `auto_plannable_chart_types`. It creates KPI indicators, line trends, stacked areas for multiple measures, bars and horizontal rankings, donut composition, regional/bubble maps, detail and pivot tables. Two measures enable scatter candidates; three measures enable radar candidates; multiple dimensions enable treemaps; stage/status fields enable funnels; keyword/tag fields enable word clouds. Gauge, candle and waterfall still require recognizable semantic patterns. A 12-component per-dataset profile budget prevents chart proliferation. Types outside `auto_plannable_chart_types` remain explicit-only.
 
@@ -84,10 +113,17 @@ Use `visual inspect` to obtain real component/view IDs and field bindings, then 
 
 ## Verification
 
+Creation is not considered successful merely because `saveCanvas` returned `code=0`. The apply workflow reads the saved canvas back, executes a real `/chartData/getData` request for every non-query view, confirms publish state, opens the published preview in Chromium and returns both the preview URL and screenshot/PDF path. If chart-data validation or capture fails, a newly created resource is removed through compensating cleanup so a broken dashboard is not left behind.
+
+Query components use the same native compatibility envelope as chart components, including `events.jump`, `commonBackground` and `matrixStyle`. This is required by DataEase's canvas history adaptor; omitting those nested objects can make an otherwise valid saved canvas fail before `.canvas-container` is mounted.
+
 After creation, confirm:
 
 1. The resource appears in the expected organization and business tree.
 2. Publish status is correct.
-3. Every chart renders with non-empty axes and no API errors.
-4. Text, legend, axis and table content are not clipped.
-5. The returned preview URL opens and the capture artifact exists.
+3. Every non-query view passes its real chart-data request.
+4. The published preview mounts a visible canvas with no loading masks or unfinished report loads.
+5. Text, legend, axis, map and table content are visibly non-empty and not clipped.
+6. The returned preview URL opens and the capture artifact exists.
+
+API success and canvas visibility are necessary but not sufficient for visual acceptance. Blank maps, compressed plots or empty table bodies must be reported as quality failures even if their data endpoints return successfully.

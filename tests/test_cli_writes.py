@@ -12,13 +12,17 @@ from scripts.dataease_skill.audit import AuditLog
 from scripts.dataease_skill.cli import (
     _active_view_ids,
     _capture,
+    _capture_pixel_from_detail,
     _content_digest,
+    _compensate_created_visual,
     _filling_create,
     _filling_delete,
     _filling_row_delete,
     _filling_row_save,
     _filling_truncate,
     _visual_delete,
+    _validate_visual_chart_data,
+    _validate_query_capture,
     _visual_publish,
     _write_snapshot,
 )
@@ -28,6 +32,65 @@ from scripts.dataease_skill.safety import PlanStore
 
 
 class PlannedWriteTests(unittest.TestCase):
+    def test_query_capture_requires_visible_conditions(self) -> None:
+        capture = {"capture_meta": {"renderState": {
+            "visibleQueryComponents": 1,
+            "visibleQueryConditions": 2,
+        }}}
+        self.assertEqual(_validate_query_capture(capture, 2)["visible_query_conditions"], 2)
+        with self.assertRaises(DataEaseError) as raised:
+            _validate_query_capture(capture, 3)
+        self.assertEqual(raised.exception.code, "query_component_not_visible")
+
+    def test_capture_uses_saved_canvas_size_by_default(self) -> None:
+        detail = {"canvasStyleData": '{"width":1920,"height":1440}'}
+        self.assertEqual(_capture_pixel_from_detail(detail), "1920*1440")
+        self.assertEqual(_capture_pixel_from_detail(detail, "1280*720"), "1280*720")
+
+    def test_visual_data_validation_calls_every_non_query_view(self) -> None:
+        class Client:
+            def __init__(self):
+                self.calls = []
+
+            def data(self, method, path, payload=None):
+                self.calls.append((method, path, payload))
+                return {"data": {"data": []}}
+
+        client = Client()
+        detail = {"canvasViewInfo": {
+            "1": {"type": "indicator", "title": "销售额", "xAxis": [], "yAxis": [{"id": "2"}]},
+            "2": {"type": "VQuery", "title": "查询"},
+        }}
+        result = _validate_visual_chart_data(client, detail)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(client.calls[0][1], "/chartData/getData")
+        self.assertEqual(client.calls[0][2]["yaxis"], [{"id": "2"}])
+
+    def test_visual_data_validation_rejects_failed_view(self) -> None:
+        class Client:
+            @staticmethod
+            def data(method, path, payload=None):
+                raise DataEaseError("指标字段无效", code="api_error", stage="request")
+
+        detail = {"canvasViewInfo": {
+            "1": {"type": "indicator", "title": "销售额", "xAxis": [], "yAxis": [{"id": "2"}]},
+        }}
+        with self.assertRaises(DataEaseError) as raised:
+            _validate_visual_chart_data(Client(), detail)
+        self.assertEqual(raised.exception.code, "visual_chart_data_failed")
+        self.assertEqual(raised.exception.details["failures"][0]["view_id"], "1")
+
+    def test_compensating_delete_reports_result(self) -> None:
+        class Client:
+            def data(self, method, path, payload=None):
+                self.path = path
+                return None
+
+        client = Client()
+        result = _compensate_created_visual(client, "42", "dashboard")
+        self.assertTrue(result["deleted"])
+        self.assertEqual(client.path, "/dataVisualization/deleteLogic/42/dashboard")
+
     @patch("scripts.dataease_skill.cli.subprocess.run")
     def test_capture_passes_credentials_in_environment_only(self, run) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -52,6 +115,27 @@ class PlannedWriteTests(unittest.TestCase):
             self.assertEqual(child_env["DATAEASE_ACCESS_KEY"], "test-access")
             self.assertEqual(child_env["DATAEASE_SECRET_KEY"], "test-secret")
             self.assertEqual(child_env["NO_PROXY"], "example,127.0.0.1")
+            self.assertEqual(child_env["DATAEASE_CANVAS_TIMEOUT_MS"], "60000")
+
+    @patch("scripts.dataease_skill.cli.time.sleep")
+    @patch("scripts.dataease_skill.cli.subprocess.run")
+    def test_capture_retries_only_transient_empty_page(self, run, sleep) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = Settings(
+                base_url="http://example", access_key="a", secret_key="b",
+                output_dir=root, skill_root=root,
+            )
+            run.side_effect = [
+                SimpleNamespace(
+                    returncode=1, stdout="",
+                    stderr='ERR_INCOMPLETE_CHUNKED_ENCODING {"hasCanvas":false,"bodyText":"","appHtml":""}',
+                ),
+                SimpleNamespace(returncode=0, stdout='{"ok": true}', stderr=""),
+            ]
+            self.assertTrue(_capture(settings, "42", "dataV", "1920*1080")["ok"])
+            self.assertEqual(run.call_count, 2)
+            sleep.assert_called_once_with(1)
 
     def test_l3_deletes_require_no_rollback_acknowledgement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

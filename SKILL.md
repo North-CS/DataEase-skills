@@ -71,8 +71,9 @@ python scripts/dataease.py system doctor
 1. 🔍 **先探查再操作**：检查实例、组织、版本、能力和目标资源后，再设计或修改。
 2. 🛡️ **读直接做，写先计划**：读取操作直接执行；写操作先生成 dry-run 计划展示 `changes`、`risk`、`plan_id`。
 3. 🔑 **严格确认**：只执行用户确认的同一 `plan_id`，L3 操作需额外提供 `confirmation_token`。
-4. ✅ **写后验证**：写入后回读确认；大屏和仪表板输出预览 URL 与截图/PDF。
+4. ✅ **写后验证**：写入后回读、逐图真实数据请求、发布预览与浏览器渲染确认；大屏和仪表板输出预览 URL 与截图/PDF。创建后任一关键验证失败时自动补偿删除本次新资源，避免留下打不开的半成品。
 5. 🎯 **API 优先**：优先官方 API → 版本适配器 → 浏览器自动化，降级时说明原因。
+6. 🤖 **模型能力降级**：不把看图或复杂 JSON 推理作为创建前提。模型能力有限、无多模态或上下文较小时，优先使用 `visual autopilot`，依据机器可读 `quality.ready/score/failed_checks` 决定是否执行；截图仅作为可选增强。
 
 ---
 
@@ -105,13 +106,18 @@ python scripts/dataease.py dataset plan --dataset "销售" --dataset "目标" --
 
 # 一站式方案执行
 python scripts/dataease.py solution plan --spec sales-solution.json
+
+# 无多模态/弱模型推荐入口：无需手写 visual spec
+python scripts/dataease.py visual autopilot --dataset "销售数据" --title "销售驾驶舱" --busi-type dataV --complexity standard
 ```
 
-规划器自动识别组件角色：KPI 置顶、趋势图宽屏、构成图侧栏、明细表横跨底部。生成的 visual spec 审阅确认后用 `visual create --spec` 执行。
+规划器自动识别组件角色，并从经营总览、零售运营、运维指挥、地域态势、公共服务和分析工作台等设计语法中选择原型：KPI 置顶、重点趋势或地图获得主视觉、构成/排行作为证据、明细用于追溯。它只提炼 DataEase 官方模板市场与公开优秀案例的设计原则，不复制具体模板、素材或固定坐标。选择依据会写入 `design_inspiration`，详细边界和来源见 `references/design-inspiration.md`。生成的 visual spec 审阅确认后用 `visual create --spec` 执行。
 
-Visual spec 可选传入 `canvas.width/height/screen_adaptor` 与 `interactions`。规划器会按目标画布重新计算 DataV 像素坐标，并可创建日期/分类查询组件、同数据集同维度图表联动、层级下钻和 URL 跳转。跨数据集同名字段只作为候选关系，不自动建立联动。
+`visual autopilot` 提供确定性的端到端规划入口。`compact` 最多 6 个组件，`standard` 最多 10 个，`rich` 最多 16 个，并始终尽量保留明细表。dry-run 返回完整计划、主题候选、纯文本质量评分与 `model_compatibility`；无多模态模型只需检查 `quality.ready=true` 后沿用 `plan_id` 执行。
 
-内置主题为 `business-light`、`minimal-light`、`neon-dark`、`deep-ocean`、`dark-gold`、`tech-blue`。它们同时作用于画布、组件背景、边框、文字和主色；也可通过 `DATAEASE_BACKGROUND_IMAGE` 使用本地背景图。
+Visual spec 可选传入 `canvas.width/height/screen_adaptor`、`theme` 与 `interactions`。主题可使用内置名称或自定义对象；企业 Logo/背景图只在本地取色，文字对比度不足时自动修正。创建 dry-run 会输出三套 SVG 主题预览。规划器会按目标画布重新计算 DataV 像素坐标，并可创建日期/分类查询组件、同数据集筛选级联、同维度图表联动、层级下钻和 URL 跳转。`filter_cascades` 可显式声明顺序；省略时只自动识别明确的地域、商品和组织层级。跨数据集同名字段只作为候选关系，不自动建立级联或联动。主题字段和示例见 `references/visualization.md`。
+
+内置主题为 `business-light`、`minimal-light`、`neon-dark`、`deep-ocean`、`dark-gold`、`tech-blue`、`chinese-red`、`government-blue`、`medical-health`、`energy-green`、`retail-vibrant`。它们同时作用于画布、组件背景、边框、文字和主色；也可通过主题对象或 `DATAEASE_BACKGROUND_IMAGE` 使用本地 Logo/背景图。
 
 ### 完整图表类型
 
@@ -157,7 +163,7 @@ Visual spec 可选传入 `canvas.width/height/screen_adaptor` 与 `interactions`
 
 1. 首次连接运行 `system doctor` 和 `system capabilities`。
 2. 读取目标组织、数据集和已有资源；名称不唯一时要求精确 ID。
-3. 按需查阅参考文档：`references/platform.md`、`references/visualization.md`、`references/advanced.md`、`references/commands.md`、`references/safety.md`。
+3. 按需查阅参考文档：`references/platform.md`、`references/visualization.md`、`references/design-inspiration.md`、`references/advanced.md`、`references/commands.md`、`references/safety.md`。
 4. 写操作先不加 `--apply`，展示 `changes`、`risk`、`plan_id` 和回滚说明。
 5. 用户确认后传入 `--apply --plan-id <id>`，L3 追加 `--confirm-token <token>`。
 6. 回读验证，状态变化时废弃旧计划。
