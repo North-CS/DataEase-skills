@@ -110,6 +110,8 @@ class FieldProfileTests(unittest.TestCase):
         self.assertIn("月份", relationship_fields)
         self.assertIn("区域", relationship_fields)
         self.assertTrue(plan["interactions"]["cross_dataset_linkage_requires_confirmation"])
+        self.assertTrue(all(" · " not in chart["title"] for chart in plan["charts"]))
+        self.assertTrue(all(chart["source_label"] for chart in plan["charts"]))
 
     def test_identifier_only_dataset_uses_distinct_count_instead_of_sum(self):
         profile = {

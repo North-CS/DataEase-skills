@@ -106,7 +106,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
 
     def _apply_component_theme(
         self, component: dict[str, Any], view_info: dict[str, Any], chart_type: str, theme: Any,
-        typography: dict[str, Any] | None = None,
+        typography: dict[str, Any] | None = None, component_count: int = 1,
     ) -> None:
         palette = self._theme(theme)
         if not palette["dark"]:
@@ -136,11 +136,12 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             })
             self._apply_responsive_typography(component, view_info, chart_type, typography)
             return
+        dense = component_count > 8
         component.setdefault("style", {}).update({
             "borderActive": True,
             "borderWidth": 1,
-            "borderRadius": 14,
-            "borderColor": palette["accent"],
+            "borderRadius": 8 if dense else 14,
+            "borderColor": color_with_alpha(palette["accent"], 0.42 if dense else 0.78),
         })
         component["commonBackground"] = {
             "backgroundColorSelect": True,
@@ -149,10 +150,10 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             "backgroundType": "innerImage",
             "innerImage": "board/board_1.svg",
             "outerImage": None,
-            "innerPadding": {"mode": "uniform", "top": 14},
-            "borderRadius": {"mode": "uniform", "topLeft": 14},
-            "backdropFilter": 8,
-            "backgroundColor": "rgba(3,12,29,0.62)",
+            "innerPadding": {"mode": "uniform", "top": 9 if dense else 14},
+            "borderRadius": {"mode": "uniform", "topLeft": 8 if dense else 14},
+            "backdropFilter": 4 if dense else 8,
+            "backgroundColor": "rgba(3,12,29,0.54)" if dense else "rgba(3,12,29,0.62)",
             "innerImageColor": palette["accent"],
         }
         custom_attr = view_info.setdefault("customAttr", {})
@@ -635,6 +636,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             self._apply_component_theme(
                 component, view, config["type"], theme,
                 typography_policy if isinstance(typography_policy, dict) else None,
+                len(charts_config),
             )
             hierarchy_rule = next((item for item in interaction_plan["drill_hierarchies"] if isinstance(item, dict) and item.get("source") == config.get("title")), {})
             drill_fields = config.get("drill_fields") or hierarchy_rule.get("fields") or []

@@ -51,9 +51,16 @@ def _select_balanced(charts: list[dict[str, Any]], limit: int, level: str) -> li
     for item in charts:
         if len(selected) == budget:
             break
-        if item is not detail and id(item) not in selected_ids:
-            selected.append(item)
-            selected_ids.add(id(item))
+        if item is detail or id(item) in selected_ids:
+            continue
+        role = _selection_role(item)
+        role_count = sum(_selection_role(current) == role for current in selected)
+        if role == "kpi" and role_count >= kpi_cap:
+            continue
+        if role == "detail" and role_count >= 1:
+            continue
+        selected.append(item)
+        selected_ids.add(id(item))
     if detail:
         selected.append(detail)
     return selected[:limit]
@@ -159,6 +166,30 @@ def score_visual_spec(spec: dict[str, Any], *, skill_root) -> dict[str, Any]:
     readability_issues = layout_readability_issues(
         charts, layouts, canvas_width=canvas_width, canvas_height=canvas_height,
     )
+    roles = [_selection_role(item) for item in charts if isinstance(item, dict)]
+    kpi_count = sum(role == "kpi" for role in roles)
+    detail_count = sum(role == "detail" for role in roles)
+    titles = [str(item.get("title") or "").strip() for item in charts if isinstance(item, dict)]
+    long_title_indexes = [
+        index for index, value in enumerate(titles)
+        if len(value) > 30
+    ]
+    repeated_titles = sorted({
+        value for value in titles if value and titles.count(value) > 1
+    })
+    hierarchy_issues = []
+    if kpi_count > min(4, max(2, (len(charts) + 1) // 2)):
+        hierarchy_issues.append({"type": "too_many_kpis", "count": kpi_count, "maximum": 4})
+    if detail_count > 2:
+        hierarchy_issues.append({"type": "too_many_detail_tables", "count": detail_count, "maximum": 2})
+    if len(long_title_indexes) > max(1, len(charts) // 4):
+        hierarchy_issues.append({
+            "type": "too_many_long_titles",
+            "indexes": long_title_indexes,
+            "maximum": max(1, len(charts) // 4),
+        })
+    if repeated_titles:
+        hierarchy_issues.append({"type": "repeated_titles", "titles": repeated_titles[:10]})
     theme = resolve_theme(
         spec.get("theme") or ("neon-dark" if spec.get("kind") == "dataV" else "business-light"),
         skill_root=skill_root,
@@ -173,13 +204,13 @@ def score_visual_spec(spec: dict[str, Any], *, skill_root) -> dict[str, Any]:
         {
             "id": "chart_count",
             "ok": 3 <= len(charts) <= 16,
-            "weight": 15,
+            "weight": 10,
             "message": f"组件数量 {len(charts)}（建议 3–16）",
         },
         {
             "id": "chart_diversity",
             "ok": len(set(chart_types)) >= min(3, len(charts)),
-            "weight": 10,
+            "weight": 5,
             "message": f"图表类型 {len(set(chart_types))} 种",
         },
         {
@@ -216,11 +247,21 @@ def score_visual_spec(spec: dict[str, Any], *, skill_root) -> dict[str, Any]:
         {
             "id": "layout_readability",
             "ok": not layout_issues and not readability_issues,
-            "weight": 20,
+            "weight": 15,
             "message": (
                 "布局无碰撞且组件达到最低可读尺寸"
                 if not layout_issues and not readability_issues
                 else f"布局问题 {len(layout_issues)}，低于可读尺寸 {len(readability_issues)}"
+            ),
+        },
+        {
+            "id": "visual_hierarchy",
+            "ok": not hierarchy_issues,
+            "weight": 15,
+            "message": (
+                "指标卡、明细表和标题密度符合视觉层级约束"
+                if not hierarchy_issues
+                else f"视觉层级问题 {len(hierarchy_issues)}"
             ),
         },
     ]
@@ -230,7 +271,7 @@ def score_visual_spec(spec: dict[str, Any], *, skill_root) -> dict[str, Any]:
         "score": score,
         "grade": "A" if score >= 90 else "B" if score >= 80 else "C" if score >= 70 else "D",
         "ready": score >= 80 and not {
-            "title", "dataset_binding", "field_binding", "layout_readability",
+            "title", "dataset_binding", "field_binding", "layout_readability", "visual_hierarchy",
         } & set(failures),
         "checks": checks,
         "failed_checks": failures,
@@ -246,6 +287,17 @@ def score_visual_spec(spec: dict[str, Any], *, skill_root) -> dict[str, Any]:
                 if spec.get("kind") == "dataV" and readability_issues
                 else None
             ),
+        },
+        "visual_hierarchy": {
+            "kpi_count": kpi_count,
+            "detail_count": detail_count,
+            "long_title_indexes": long_title_indexes,
+            "issues": hierarchy_issues,
+            "policy": {
+                "maximum_kpis": 4,
+                "maximum_detail_tables": 2,
+                "long_title_characters": 30,
+            },
         },
         "resolved_theme": {
             key: theme[key] for key in (

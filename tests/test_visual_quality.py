@@ -162,6 +162,32 @@ class VisualQualityTests(unittest.TestCase):
         self.assertGreater(result["canvas"]["height"], 1080)
         self.assertTrue(score_visual_spec(result, skill_root=Path.cwd())["ready"])
 
+    def test_excessive_kpis_and_long_repeated_titles_fail_visual_hierarchy(self):
+        title = "市场风险指标监控数据集 · 当前数值与最大目标数值综合评估"
+        spec = {
+            "kind": "dataV",
+            "title": "金融驾驶舱",
+            "theme": "dark-gold",
+            "charts": [
+                {
+                    "type": "indicator",
+                    "intent": "kpi",
+                    "title": title,
+                    "dataset_name": "1",
+                    "x_axis": ["指标"],
+                    "y_axis": [f"指标{index}"],
+                }
+                for index in range(6)
+            ],
+            "interactions": {"filters": ["指标"]},
+        }
+        result = score_visual_spec(spec, skill_root=Path.cwd())
+        self.assertFalse(result["ready"])
+        self.assertIn("visual_hierarchy", result["failed_checks"])
+        issue_types = {item["type"] for item in result["visual_hierarchy"]["issues"]}
+        self.assertIn("too_many_kpis", issue_types)
+        self.assertIn("repeated_titles", issue_types)
+
 
 if __name__ == "__main__":
     unittest.main()

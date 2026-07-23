@@ -97,7 +97,9 @@ def _measure_candidates(profile: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _qualified_title(dataset_name: str, title: str, multi: bool) -> str:
-    return f"{dataset_name} · {title}" if multi else title
+    # Keep source identity in chart metadata instead of repeating long dataset
+    # names in every visible title. This preserves hierarchy on dense canvases.
+    return title
 
 
 def _normalized_field_name(name: str) -> str:
@@ -466,6 +468,12 @@ def build_visual_plan(
             recommendations.append("未发现可靠的跨数据集同名关联字段；当前方案仅在同一画布并列展示多个数据集。")
 
     filters = primary_dates[:1] + primary_dimensions[:2]
+    dataset_labels = {
+        str(item["dataset"]["id"]): str(item["dataset"].get("name") or item["dataset"]["id"])
+        for item in profiles
+    }
+    for chart in charts:
+        chart["source_label"] = dataset_labels.get(str(chart.get("dataset_name")), "")
     planned_layouts = plan_smart_layouts(charts, reserved_top_rows=4 if filters else 0)
     for chart, layout in zip(charts, planned_layouts):
         chart["layout"] = layout
