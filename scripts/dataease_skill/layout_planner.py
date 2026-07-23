@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Iterable
 
 from .visual_typography import text_units
@@ -118,6 +119,7 @@ def chart_space_requirements(chart: dict[str, Any]) -> dict[str, Any]:
         "min_width": min_width,
         "preferred_width": preferred_width,
         "max_width": max_width,
+        "min_height": max(120, min(220, round(preferred_height * 0.6))),
         "preferred_height": max(120, preferred_height),
         "has_axes": has_axes,
         "has_legend": has_legend,
@@ -187,17 +189,30 @@ def _row_pixel_height(
     return max(heights)
 
 
-def _grid_heights(pixel_heights: list[int], available_rows: int) -> list[int]:
+def _grid_heights(
+    pixel_heights: list[int],
+    minimum_pixel_heights: list[int],
+    available_rows: int,
+    canvas_height: int,
+) -> list[int]:
     if not pixel_heights:
         return []
-    minimum = 4
-    if available_rows < minimum * len(pixel_heights):
+    minimums = [
+        max(1, math.ceil(height * 36 / max(canvas_height, 1)))
+        for height in minimum_pixel_heights
+    ]
+    if available_rows < sum(minimums):
+        # Preserve valid, collision-free geometry so the quality report can
+        # explain the capacity shortfall. The apply gate rejects this layout.
         return _split_height(available_rows, len(pixel_heights))
     total = sum(pixel_heights)
     raw = [available_rows * height / total for height in pixel_heights]
-    result = [max(minimum, int(value)) for value in raw]
+    result = [max(minimums[index], int(value)) for index, value in enumerate(raw)]
     while sum(result) > available_rows:
-        candidates = [index for index, value in enumerate(result) if value > minimum]
+        candidates = [
+            index for index, value in enumerate(result)
+            if value > minimums[index]
+        ]
         if not candidates:
             break
         index = max(candidates, key=lambda item: result[item] - raw[item])
@@ -235,6 +250,33 @@ def validate_layouts(layouts: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
                 continue
             if not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1]):
                 issues.append({"type": "collision", "indexes": [left, right]})
+    return issues
+
+
+def layout_readability_issues(
+    charts: Iterable[dict[str, Any]],
+    layouts: Iterable[dict[str, Any]],
+    *,
+    canvas_width: int = 1920,
+    canvas_height: int = 1080,
+) -> list[dict[str, Any]]:
+    """Return components whose allocated pixels cannot satisfy their content-derived minimums."""
+    issues: list[dict[str, Any]] = []
+    for index, (chart, layout) in enumerate(zip(charts, layouts)):
+        requirement = chart_space_requirements(chart)
+        pixel_width = int(layout["sizeX"]) * canvas_width / 72
+        pixel_height = int(layout["sizeY"]) * canvas_height / 36
+        minimum_width = requirement["min_width"] * canvas_width / 72
+        minimum_height = requirement["min_height"]
+        if pixel_width + 1 < minimum_width or pixel_height < minimum_height:
+            issues.append({
+                "index": index,
+                "type": chart.get("type"),
+                "pixel_width": round(pixel_width),
+                "pixel_height": round(pixel_height),
+                "minimum_width": round(minimum_width),
+                "minimum_height": round(minimum_height),
+            })
     return issues
 
 
@@ -280,7 +322,16 @@ def plan_smart_layouts(
         _row_pixel_height(row, widths, requirements)
         for row, widths in zip(rows, widths_by_row)
     ]
-    heights = _grid_heights(pixel_heights, 36 - reserved_top_rows)
+    minimum_pixel_heights = [
+        max(requirements[index]["min_height"] for index in row)
+        for row in rows
+    ]
+    heights = _grid_heights(
+        pixel_heights,
+        minimum_pixel_heights,
+        36 - reserved_top_rows,
+        canvas_height,
+    )
     result: list[dict[str, int] | None] = [None] * len(items)
     cursor_y = 1 + reserved_top_rows
     for row, widths, height in zip(rows, widths_by_row, heights):

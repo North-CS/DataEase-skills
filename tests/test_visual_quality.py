@@ -116,6 +116,52 @@ class VisualQualityTests(unittest.TestCase):
         self.assertTrue(dashboard["layout"]["canvas"]["height"] > 1080)
         self.assertNotIn("layout_readability", dashboard["failed_checks"])
 
+    def test_autopilot_profile_reduces_fixed_datav_density_until_readable(self):
+        spec = {
+            "kind": "dataV",
+            "title": "低能力模型也可安全创建",
+            "theme": "tech-blue",
+            "charts": [
+                {
+                    "type": ("table-info", "line", "map", "bar-horizontal")[index % 4],
+                    "intent": ("detail", "trend", "geospatial", "ranking")[index % 4],
+                    "title": f"组件 {index + 1}",
+                    "dataset_name": "1",
+                    "x_axis": ["区域"],
+                    "y_axis": ["销售额"],
+                }
+                for index in range(16)
+            ],
+            "interactions": {"filters": ["日期"]},
+        }
+        result = apply_complexity_profile(spec, "rich")
+        quality = score_visual_spec(result, skill_root=Path.cwd())
+        self.assertTrue(quality["ready"])
+        self.assertGreater(result["complexity"]["readability_reduction"], 0)
+        self.assertEqual(result["complexity"]["readability_policy"], "fit-fixed-canvas")
+
+    def test_autopilot_dashboard_expands_before_persisting_layouts(self):
+        spec = {
+            "kind": "dashboard",
+            "title": "滚动分析",
+            "theme": "business-light",
+            "charts": [
+                {
+                    "type": "bar",
+                    "intent": "comparison",
+                    "title": f"组件 {index + 1}",
+                    "dataset_name": "1",
+                    "x_axis": ["区域"],
+                    "y_axis": ["销售额"],
+                }
+                for index in range(10)
+            ],
+            "interactions": {"filters": ["日期"]},
+        }
+        result = apply_complexity_profile(spec, "standard")
+        self.assertGreater(result["canvas"]["height"], 1080)
+        self.assertTrue(score_visual_spec(result, skill_root=Path.cwd())["ready"])
+
 
 if __name__ == "__main__":
     unittest.main()

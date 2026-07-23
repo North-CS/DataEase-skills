@@ -73,7 +73,7 @@ python scripts/dataease.py system doctor
 3. 🔑 **严格确认**：只执行用户确认的同一 `plan_id`，L3 操作需额外提供 `confirmation_token`。
 4. ✅ **写后验证**：写入后回读、逐图真实数据请求、发布预览与浏览器渲染确认；大屏和仪表板输出预览 URL 与截图/PDF。创建后任一关键验证失败时自动补偿删除本次新资源，避免留下打不开的半成品。
 5. 🎯 **API 优先**：优先官方 API → 版本适配器 → 浏览器自动化，降级时说明原因。
-6. 🤖 **模型能力降级**：不把看图或复杂 JSON 推理作为创建前提。模型能力有限、无多模态或上下文较小时，优先使用 `visual autopilot`，依据机器可读 `quality.ready/score/failed_checks` 决定是否执行；截图仅作为可选增强。
+6. 🤖 **模型能力降级**：不把看图或复杂 JSON 推理作为创建前提。模型能力有限、无多模态或上下文较小时，优先使用 `visual autopilot`，依据机器可读 `quality.ready/score/failed_checks` 决定是否执行；截图仅作为可选增强。`quality.ready=false` 时不得执行创建；固定 DataV 空间不足时减少组件、提高目标分辨率或改用 dashboard，不得静默改变资源类型。
 
 ---
 

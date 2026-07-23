@@ -353,6 +353,18 @@ def _visual_create(
     if plan.get("operation") != "visual.create":
         raise DataEaseError("plan-id 不属于 visual.create", code="invalid_plan", stage="safety")
     spec = plan["spec"]
+    quality = score_visual_spec(spec, skill_root=settings.skill_root)
+    if not quality["ready"]:
+        raise DataEaseError(
+            "可视化质量门禁未通过，已拒绝创建",
+            code="visual_quality_gate_failed",
+            stage="quality",
+            details={
+                "score": quality["score"],
+                "failed_checks": quality["failed_checks"],
+                "layout": quality["layout"],
+            },
+        )
     from .visual_engine import MultiDataEaseChartEngine
 
     engine = MultiDataEaseChartEngine(
