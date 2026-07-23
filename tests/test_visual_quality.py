@@ -86,6 +86,36 @@ class VisualQualityTests(unittest.TestCase):
         self.assertTrue({"kpi", "geospatial", "trend", "detail"}.issubset(roles))
         self.assertLessEqual(sum(item["intent"] == "kpi" for item in result["charts"]), 2)
 
+    def test_fixed_datav_reports_overcrowding_while_dashboard_can_expand(self):
+        charts = [
+            {
+                "type": ("bar", "line", "pie-donut")[index % 3],
+                "title": f"分析组件 {index + 1}",
+                "dataset_name": "1",
+                "x_axis": ["区域"],
+                "y_axis": ["销售额"],
+            }
+            for index in range(16)
+        ]
+        common = {
+            "title": "高密度分析",
+            "theme": "tech-blue",
+            "charts": charts,
+            "interactions": {"filters": ["日期"]},
+        }
+        datav = score_visual_spec(
+            {**common, "kind": "dataV", "canvas": {"width": 1920, "height": 1080}},
+            skill_root=Path.cwd(),
+        )
+        dashboard = score_visual_spec(
+            {**common, "kind": "dashboard"},
+            skill_root=Path.cwd(),
+        )
+        self.assertFalse(datav["ready"])
+        self.assertIn("layout_readability", datav["failed_checks"])
+        self.assertTrue(dashboard["layout"]["canvas"]["height"] > 1080)
+        self.assertNotIn("layout_readability", dashboard["failed_checks"])
+
 
 if __name__ == "__main__":
     unittest.main()

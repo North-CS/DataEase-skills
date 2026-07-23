@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from .theme_engine import resolve_theme
-from .layout_planner import plan_smart_layouts
+from .layout_planner import (
+    chart_space_requirements,
+    plan_smart_layouts,
+    recommended_dashboard_height,
+    validate_layouts,
+)
 from .design_inspiration import design_dimensions
 
 
@@ -63,7 +68,13 @@ def apply_complexity_profile(spec: dict[str, Any], level: str) -> dict[str, Any]
     if len(charts) > limit:
         charts = _select_balanced(charts, limit, level)
     filters = ((spec.get("interactions") or {}).get("filters") or [])
-    layouts = plan_smart_layouts(charts, reserved_top_rows=4 if filters else 0)
+    canvas = spec.get("canvas") if isinstance(spec.get("canvas"), dict) else {}
+    layouts = plan_smart_layouts(
+        charts,
+        canvas_width=int(canvas.get("width") or 1920),
+        canvas_height=int(canvas.get("height") or 1080),
+        reserved_top_rows=4 if filters else 0,
+    )
     for chart, layout in zip(charts, layouts):
         chart["layout"] = layout
     spec["charts"] = charts
@@ -94,6 +105,41 @@ def score_visual_spec(spec: dict[str, Any], *, skill_root) -> dict[str, Any]:
     }
     interactions = spec.get("interactions") if isinstance(spec.get("interactions"), dict) else {}
     filters = interactions.get("filters") if isinstance(interactions.get("filters"), list) else []
+    canvas = spec.get("canvas") if isinstance(spec.get("canvas"), dict) else {}
+    canvas_width = int(canvas.get("width") or 1920)
+    canvas_height = int(canvas.get("height") or 1080)
+    reserved_top_rows = 4 if filters else 0
+    if spec.get("kind") == "dashboard" and not canvas.get("height"):
+        canvas_height = recommended_dashboard_height(
+            charts, reserved_top_rows=reserved_top_rows,
+        )
+    layouts = [
+        item.get("layout") for item in charts
+        if isinstance(item, dict) and isinstance(item.get("layout"), dict)
+    ]
+    if len(layouts) != len(charts):
+        layouts = plan_smart_layouts(
+            charts,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+            reserved_top_rows=reserved_top_rows,
+        )
+    layout_issues = validate_layouts(layouts)
+    readability_issues = []
+    for index, (chart, layout) in enumerate(zip(charts, layouts)):
+        requirement = chart_space_requirements(chart)
+        pixel_width = int(layout["sizeX"]) * canvas_width / 72
+        pixel_height = int(layout["sizeY"]) * canvas_height / 36
+        minimum_width = requirement["min_width"] * canvas_width / 72
+        minimum_height = max(130, min(220, requirement["preferred_height"] * 0.6))
+        if pixel_width + 1 < minimum_width or pixel_height < minimum_height:
+            readability_issues.append({
+                "index": index,
+                "type": chart.get("type"),
+                "pixel_width": round(pixel_width),
+                "pixel_height": round(pixel_height),
+                "minimum_height": round(minimum_height),
+            })
     theme = resolve_theme(
         spec.get("theme") or ("neon-dark" if spec.get("kind") == "dataV" else "business-light"),
         skill_root=skill_root,
@@ -148,17 +194,35 @@ def score_visual_spec(spec: dict[str, Any], *, skill_root) -> dict[str, Any]:
             "weight": 10,
             "message": f"查询条件 {len(filters)} 个",
         },
+        {
+            "id": "layout_readability",
+            "ok": not layout_issues and not readability_issues,
+            "weight": 0,
+            "message": (
+                "布局无碰撞且组件达到最低可读尺寸"
+                if not layout_issues and not readability_issues
+                else f"布局问题 {len(layout_issues)}，低于可读尺寸 {len(readability_issues)}"
+            ),
+        },
     ]
     score = sum(item["weight"] for item in checks if item["ok"])
     failures = [item["id"] for item in checks if not item["ok"]]
     return {
         "score": score,
         "grade": "A" if score >= 90 else "B" if score >= 80 else "C" if score >= 70 else "D",
-        "ready": score >= 80 and not {"title", "dataset_binding", "field_binding"} & set(failures),
+        "ready": score >= 80 and not {
+            "title", "dataset_binding", "field_binding", "layout_readability",
+        } & set(failures),
         "checks": checks,
         "failed_checks": failures,
         "requires_multimodal_model": False,
         "visual_review": "optional_enhancement",
+        "layout": {
+            "engine": "constraint-v3",
+            "canvas": {"width": canvas_width, "height": canvas_height},
+            "issues": layout_issues,
+            "readability_issues": readability_issues,
+        },
         "resolved_theme": {
             key: theme[key] for key in (
                 "name", "background", "accent", "text", "colors",

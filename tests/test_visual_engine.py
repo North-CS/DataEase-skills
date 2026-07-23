@@ -10,7 +10,12 @@ if str(SCRIPTS) not in sys.path:
 
 from dataease_skill.visual_engine import MultiDataEaseChartEngine
 from dataease_skill.chart_catalog import SUPPORTED_CHART_TYPES
-from dataease_skill.layout_planner import plan_smart_layouts, recommended_dashboard_height
+from dataease_skill.layout_planner import (
+    chart_space_requirements,
+    plan_smart_layouts,
+    recommended_dashboard_height,
+    validate_layouts,
+)
 
 
 class LayoutTests(unittest.TestCase):
@@ -139,9 +144,9 @@ class LayoutTests(unittest.TestCase):
         ]
         height = recommended_dashboard_height(charts, reserved_top_rows=4)
         layouts = plan_smart_layouts(charts, canvas_height=height, reserved_top_rows=4)
-        self.assertEqual(height, 1440)
+        self.assertGreaterEqual(height, 1440)
         self.assertGreaterEqual(min(item["height"] for item in layouts[4:10]), 240)
-        self.assertGreaterEqual(layouts[-1]["height"], 320)
+        self.assertGreaterEqual(layouts[-1]["height"], 250)
 
     def test_custom_4k_canvas_scales_datav_pixel_layout(self):
         engine = object.__new__(MultiDataEaseChartEngine)
@@ -298,7 +303,7 @@ class LayoutTests(unittest.TestCase):
         )
         self.assertEqual(len({(left, top) for left, top, _width, _height in geometry}), 4)
 
-    def test_dashboard_smart_layout_uses_semantic_roles(self):
+    def test_dashboard_constraint_layout_uses_component_requirements(self):
         engine = object.__new__(MultiDataEaseChartEngine)
         engine.base_url = "http://example"
         engine.client = _FakeVisualClient()
@@ -315,9 +320,37 @@ class LayoutTests(unittest.TestCase):
         engine.deploy_multi("智能仪表板", charts, busi_type="dashboard", publish=False, append_timestamp=False)
 
         components = json.loads(engine.client.saved_payload["componentData"])
-        self.assertEqual((components[0]["sizeX"], components[1]["sizeX"]), (48, 24))
+        self.assertGreater(components[0]["sizeX"], components[1]["sizeX"])
         self.assertEqual(components[2]["sizeX"], 72)
         self.assertGreater(components[2]["y"], components[0]["y"])
+
+    def test_all_supported_chart_types_get_collision_free_datav_layouts(self):
+        charts = [
+            {
+                "type": chart_type,
+                "title": f"{chart_type} 自动适配",
+                "x_axis": ["维度"],
+                "y_axis": ["指标"],
+            }
+            for chart_type in sorted(SUPPORTED_CHART_TYPES)
+        ]
+        layouts = plan_smart_layouts(charts, canvas_width=1920, canvas_height=1080)
+        self.assertEqual(len(layouts), len(charts))
+        self.assertEqual(validate_layouts(layouts), [])
+
+    def test_content_density_expands_preferred_space(self):
+        sparse = chart_space_requirements({
+            "type": "bar", "title": "区域销售", "x_axis": ["区域"], "y_axis": ["销售额"],
+            "data_density": {"category_count": 5, "series_count": 1, "legend_items": 1},
+        })
+        dense = chart_space_requirements({
+            "type": "bar", "title": "多区域多产品销售对比分析",
+            "x_axis": ["区域"], "y_axis": ["销售额", "利润", "订单量"],
+            "data_density": {"category_count": 40, "series_count": 8, "legend_items": 8},
+        })
+        self.assertGreater(dense["preferred_width"], sparse["preferred_width"])
+        self.assertGreater(dense["preferred_height"], sparse["preferred_height"])
+        self.assertEqual(dense["density_source"], "preview")
 
 
 class _FakeResponse:

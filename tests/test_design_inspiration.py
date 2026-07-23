@@ -32,7 +32,7 @@ class DesignInspirationTests(unittest.TestCase):
         self.assertFalse(result["design_inspiration"]["template_copying"])
         self.assertEqual(result["charts"][0]["intent"], "kpi")
         self.assertEqual(result["charts"][1]["intent"], "geospatial")
-        self.assertEqual(result["charts"][1]["layout"]["sizeX"], 48)
+        self.assertGreaterEqual(result["charts"][1]["layout"]["sizeX"], 36)
         self.assertTrue(all("layout" in chart for chart in result["charts"]))
 
     def test_operations_title_selects_command_center(self):

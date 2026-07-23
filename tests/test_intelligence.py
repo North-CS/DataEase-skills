@@ -69,7 +69,8 @@ class FieldProfileTests(unittest.TestCase):
         self.assertEqual(table["x_axis"], ["日期", "区域"])
         self.assertEqual(table["y_axis"], ["销售额"])
         self.assertEqual(table["layout"]["sizeX"], 72)
-        self.assertEqual(plan["layout_strategy"]["engine"], "semantic-v2")
+        self.assertEqual(plan["layout_strategy"]["engine"], "constraint-v3")
+        self.assertTrue(plan["layout_strategy"]["requirements"])
         self.assertTrue(plan["recommendations"])
 
     def test_dashboard_plan_gets_responsive_semantic_layout(self):
@@ -82,6 +83,22 @@ class FieldProfileTests(unittest.TestCase):
         self.assertGreaterEqual(composition["layout"]["sizeX"], 24)
         self.assertEqual(detail["layout"]["sizeX"], 72)
         self.assertEqual(plan["kind"], "dashboard")
+
+    def test_autopilot_emits_explicit_cascade_for_reversed_hierarchy_fields(self):
+        profile = {
+            "dataset": {"id": "500", "name": "区域销售"},
+            "dimensions": [{"name": "省级行政区"}, {"name": "大区"}],
+            "dates": [],
+            "identifiers": [],
+            "measures": [{"name": "销售额", "recommended_aggregation": "sum"}],
+            "sensitive_fields": [],
+        }
+        plan = build_visual_plan(profile, "区域驾驶舱", "dashboard")
+        self.assertEqual(plan["interactions"]["filters"], ["省级行政区", "大区"])
+        self.assertEqual(
+            plan["interactions"]["filter_cascades"],
+            [["大区", "省级行政区"]],
+        )
 
     def test_multi_dataset_plan_uses_every_dataset_and_suggests_relationships(self):
         service = DatasetService(MultiDatasetClient())
