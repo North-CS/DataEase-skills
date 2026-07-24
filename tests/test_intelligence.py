@@ -12,7 +12,7 @@ class FakeClient:
             return {
                 "allFields": [
                     {"id": "1", "name": "日期", "type": "DATE", "deType": 1},
-                    {"id": "2", "name": "区域", "type": "VARCHAR", "deType": 0},
+                    {"id": "2", "name": "省份", "type": "VARCHAR", "deType": 0},
                     {"id": "3", "name": "销售额", "type": "DECIMAL", "deType": 2},
                     {"id": "4", "name": "客户手机号", "type": "VARCHAR", "deType": 0},
                 ]
@@ -66,7 +66,7 @@ class FieldProfileTests(unittest.TestCase):
         self.assertIn("line", [chart["type"] for chart in plan["charts"]])
         self.assertIn("bar", [chart["type"] for chart in plan["charts"]])
         table = next(chart for chart in plan["charts"] if chart["type"] == "table_info")
-        self.assertEqual(table["x_axis"], ["日期", "区域"])
+        self.assertEqual(table["x_axis"], ["日期", "省份"])
         self.assertEqual(table["y_axis"], ["销售额"])
         self.assertEqual(table["layout"]["sizeX"], 72)
         self.assertEqual(plan["layout_strategy"]["engine"], "constraint-v3")
@@ -149,6 +149,20 @@ class FieldProfileTests(unittest.TestCase):
         }.issubset(types))
         self.assertIn("radar", plan["auto_plannable_chart_types"])
         self.assertEqual(plan["planning_policy"]["max_profile_charts_per_dataset"], 12)
+
+    def test_city_name_without_coordinates_does_not_plan_blank_national_map(self):
+        profile = {
+            "dataset": {"id": "500", "name": "运单"},
+            "dimensions": [{"name": "发件城市", "originName": "send_city"}],
+            "dates": [],
+            "identifiers": [],
+            "measures": [{"name": "实际运费(元)", "recommended_aggregation": "sum"}],
+            "sensitive_fields": [],
+        }
+        plan = build_visual_plan(profile, "运单驾驶舱")
+        self.assertNotIn("map", [chart["type"] for chart in plan["charts"]])
+        self.assertNotIn("bubble-map", [chart["type"] for chart in plan["charts"]])
+        self.assertTrue(any("城市字段" in item and "symbolic-map" in item for item in plan["recommendations"]))
 
 
 if __name__ == "__main__":

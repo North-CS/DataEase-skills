@@ -70,6 +70,32 @@ def _field_names(profile: dict[str, Any], role: str) -> list[str]:
     return [str(item["name"]) for item in profile.get(role, []) if item.get("name")]
 
 
+def _geo_scope(field: dict[str, Any]) -> str:
+    text = " ".join(str(field.get(key) or "") for key in ("name", "originName", "description")).lower()
+    if any(word in text for word in ("province", "省", "自治区", "直辖市")):
+        return "province"
+    if any(word in text for word in ("country", "国家", "全国")):
+        return "country"
+    if any(word in text for word in ("city", "城市", "市", "prefecture", "地级")):
+        return "city"
+    return "unknown"
+
+
+def _regional_map_dimension(profile: dict[str, Any]) -> tuple[str | None, list[str]]:
+    """Only country/province names can safely drive DataEase's national area map."""
+    city_fields: list[str] = []
+    for field in profile.get("dimensions", []):
+        name = str(field.get("name") or "")
+        if not name:
+            continue
+        scope = _geo_scope(field)
+        if scope in {"province", "country"}:
+            return name, city_fields
+        if scope == "city":
+            city_fields.append(name)
+    return None, city_fields
+
+
 def _measure_candidates(profile: dict[str, Any]) -> list[dict[str, Any]]:
     measures = []
     for item in profile.get("measures", []):
@@ -228,7 +254,7 @@ def build_visual_plan(
             continue
         usable_profiles.append((current, measure_items))
         primary_dimension = dimensions[0] if dimensions else dates[0] if dates else identifiers[0] if identifiers else None
-        geo_dimension = next((name for name in dimensions if GEO_PATTERN.search(name)), None)
+        geo_dimension, city_only_geo_fields = _regional_map_dimension(current)
         stage_dimension = next((name for name in dimensions if STAGE_PATTERN.search(name)), None)
         text_dimension = next((name for name in dimensions if TEXT_PATTERN.search(name)), None)
         primary_measure = str(measure_items[0]["display_name"])
@@ -321,6 +347,12 @@ def build_visual_plan(
                         "dataset_name": str(dataset["id"]), "x_axis": [geo_dimension],
                         "y_axis": measures[:2], "y_aggregations": measure_aggregations[:2], "intent": "geospatial",
                     })
+            elif city_only_geo_fields:
+                recommendations.append(
+                    f"数据集“{dataset_name}”仅识别到城市字段“{city_only_geo_fields[0]}”，"
+                    "未生成全国地图：城市名称不能直接定位。请提供经度/纬度后显式使用 symbolic-map，"
+                    "或使用已生成的城市排行图。"
+                )
             if stage_dimension:
                 charts.append({
                     "type": "funnel", "title": _qualified_title(dataset_name, f"{stage_dimension}转化漏斗", multi),

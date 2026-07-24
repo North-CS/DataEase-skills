@@ -264,6 +264,19 @@ def _validate_visual_chart_data(client: DataEaseClient, detail: dict[str, Any]) 
         })
         try:
             response = client.data("POST", "/chartData/getData", payload)
+            if raw_view.get("type") == "symbolic-map":
+                chart_data = response.get("data") if isinstance(response, dict) else None
+                points = chart_data.get("data") if isinstance(chart_data, dict) else None
+                if not isinstance(points, list) or not points or any(
+                    not isinstance(point, dict) or point.get("x") is None or point.get("y") is None
+                    for point in points
+                ):
+                    raise DataEaseError(
+                        "符号地图缺少可用经纬度坐标，拒绝发布空白城市地图",
+                        code="symbolic_map_coordinates_missing",
+                        stage="verification",
+                        details={"view_id": str(view_id)},
+                    )
             results.append({
                 "view_id": str(view_id), "title": raw_view.get("title"),
                 "type": raw_view.get("type"), "ok": True,

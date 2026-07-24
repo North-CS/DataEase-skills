@@ -9,7 +9,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from dataease_skill.visual_engine import MultiDataEaseChartEngine
-from dataease_skill.chart_catalog import SUPPORTED_CHART_TYPES
+from dataease_skill.chart_catalog import SUPPORTED_CHART_TYPES, apply_native_chart_defaults
 from dataease_skill.layout_planner import (
     chart_space_requirements,
     plan_smart_layouts,
@@ -190,6 +190,22 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual([str(item["id"]) for item in view["xAxis"]], ["11", "12"])
         self.assertEqual([str(item["id"]) for item in view["yAxis"]], ["21", "22"])
         self.assertEqual([item["summary"] for item in view["yAxis"]], ["sum", "max"])
+
+    def test_pivot_with_mixed_units_hides_all_grand_totals(self):
+        view = {
+            "yAxis": [
+                {"name": "实际运费(元)", "originName": "actual_freight"},
+                {"name": "标准时效(小时)", "originName": "standard_hours"},
+            ],
+            "customAttr": {"tableTotal": {"row": {"showGrandTotals": True}, "col": {"showGrandTotals": True}}},
+        }
+        apply_native_chart_defaults(view, "table-pivot")
+        self.assertFalse(view["customAttr"]["tableTotal"]["row"]["showGrandTotals"])
+        self.assertFalse(view["customAttr"]["tableTotal"]["col"]["showGrandTotals"])
+
+    def test_city_name_is_rejected_for_national_area_map(self):
+        with self.assertRaisesRegex(ValueError, "city names"):
+            apply_native_chart_defaults({"xAxis": [{"name": "发件城市", "originName": "send_city"}]}, "map")
 
     def test_bubble_map_uses_dedicated_secondary_measure_channel(self):
         engine = object.__new__(MultiDataEaseChartEngine)
