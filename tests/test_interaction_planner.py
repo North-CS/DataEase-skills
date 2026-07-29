@@ -8,7 +8,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from dataease_skill.interaction_planner import (
-    apply_jump_event, build_query_component, infer_filter_cascades, normalize_interactions, normalize_jump_rule,
+    build_native_link_jump_payloads, build_query_component, infer_filter_cascades, normalize_interactions, normalize_jump_rule,
     query_style_for_background, shared_linkages,
 )
 
@@ -16,17 +16,29 @@ from dataease_skill.interaction_planner import (
 class InteractionPlannerTests(unittest.TestCase):
     def test_jump_rule_rejects_unsafe_url_and_invalid_target(self):
         with self.assertRaisesRegex(ValueError, "absolute http"):
-            normalize_jump_rule({"url": "javascript:alert(1)"})
-        with self.assertRaisesRegex(ValueError, "_blank or _self"):
-            normalize_jump_rule({"url": "https://example.invalid", "target": "new-window"})
+            normalize_jump_rule({"source": "区域销售", "field": "区域", "url": "javascript:alert(1)"})
+        with self.assertRaisesRegex(ValueError, "_self, _blank, or newPop"):
+            normalize_jump_rule({"source": "区域销售", "field": "区域", "url": "https://example.invalid", "open_mode": "new-window"})
 
-    def test_jump_event_has_complete_native_envelope(self):
-        component, view = {"events": {}}, {}
-        apply_jump_event(component, view, {"url": "https://example.invalid/detail", "target": "_self"})
-        self.assertTrue(component["events"]["checked"])
-        self.assertEqual(component["events"]["jump"], {"value": "https://example.invalid/detail", "type": "_self"})
-        self.assertIn({"key": "jump", "label": "jump"}, component["events"]["typeList"])
-        self.assertTrue(view["jumpActive"])
+    def test_jump_payload_uses_server_side_field_records(self):
+        rules = normalize_interactions({"jumps": [{
+            "chart": "订单明细", "fields": [{"field": "城市", "url": "https://example.invalid/detail?city=[城市]", "open_mode": "newPop", "window_size": "middle"}],
+        }]} )["jumps"]
+        payload = build_native_link_jump_payloads("100", rules, {"订单明细": "200"}, lambda _chart, field: {"城市": "11"}[field])[0]
+        self.assertEqual(payload["sourceViewId"], "200")
+        self.assertEqual(payload["linkJumpInfoArray"][0]["sourceFieldId"], "11")
+        self.assertEqual(payload["linkJumpInfoArray"][0]["content"], "https://example.invalid/detail?city=[11]")
+        self.assertEqual(payload["linkJumpInfoArray"][0]["jumpType"], "newPop")
+
+    def test_internal_jump_supports_target_view_mapping(self):
+        rule = normalize_jump_rule({
+            "source": "订单明细", "field": "城市", "link_type": "inner",
+            "target": {"id": "300", "type": "dashboard", "mappings": [{"target_view_id": "400", "target_field_id": "500", "target_type": "filter"}]},
+        })
+        payload = build_native_link_jump_payloads("100", [rule], {"订单明细": "200"}, lambda _chart, _field: "11")[0]
+        info = payload["linkJumpInfoArray"][0]
+        self.assertEqual((info["targetDvId"], info["targetDvType"]), ("300", "dashboard"))
+        self.assertEqual(info["targetViewInfoList"][0]["targetType"], "filter")
     def test_query_component_binds_real_field_and_targets(self):
         field = {"id": "10", "name": "区域", "originName": "region", "type": "VARCHAR", "deType": 0}
         measure = {"id": "20", "name": "销售额", "originName": "sales", "type": "DECIMAL", "deType": 3}
@@ -109,7 +121,7 @@ class InteractionPlannerTests(unittest.TestCase):
     def test_chart_alias_is_normalized_for_drill_and_jump_rules(self):
         plan = normalize_interactions({
             "drill_hierarchies": [{"chart": "区域销售", "fields": ["省", "市"]}],
-            "jumps": [{"chart": "区域销售", "url": "https://example.invalid"}],
+            "jumps": [{"chart": "区域销售", "field": "区域", "url": "https://example.invalid"}],
         })
         self.assertEqual(plan["drill_hierarchies"][0]["source"], "区域销售")
         self.assertEqual(plan["jumps"][0]["source"], "区域销售")

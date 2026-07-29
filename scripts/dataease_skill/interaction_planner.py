@@ -200,15 +200,7 @@ def normalize_interactions(value: Any) -> dict[str, Any]:
                     filter_cascades.append(normalized_chain)
     drill_rules = value.get("drill_hierarchies") if isinstance(value.get("drill_hierarchies"), list) else []
     raw_jump_rules = value.get("jumps") if isinstance(value.get("jumps"), list) else []
-    jump_rules = []
-    seen_jump_sources: set[str] = set()
-    for rule in raw_jump_rules:
-        normalized = normalize_jump_rule(rule, require_source=True)
-        source = normalized["source"]
-        if source in seen_jump_sources:
-            raise ValueError(f"duplicate jump rule for chart: {source}")
-        seen_jump_sources.add(source)
-        jump_rules.append(normalized)
+    jump_rules = normalize_link_jump_rules(raw_jump_rules)
     normalized_drills = []
     for rule in drill_rules:
         if isinstance(rule, dict):
@@ -225,36 +217,126 @@ def normalize_interactions(value: Any) -> dict[str, Any]:
     }
 
 
-def normalize_jump_rule(value: Any, *, require_source: bool = False) -> dict[str, str]:
-    """Validate the native URL-event contract before a canvas is saved."""
+def normalize_jump_rule(value: Any, *, require_source: bool = False) -> dict[str, Any]:
+    """Normalize one DataEase native, field-level link-jump definition."""
     if not isinstance(value, dict):
         raise ValueError("jump rule must be an object")
     source = str(value.get("source") or value.get("chart") or "").strip()
     if require_source and not source:
         raise ValueError("jump rule requires source (or chart)")
-    url = str(value.get("url") or "").strip()
-    parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("jump url must be an absolute http(s) URL")
-    target = str(value.get("target") or "_blank").strip()
-    if target not in {"_blank", "_self"}:
-        raise ValueError("jump target must be _blank or _self")
-    return {"source": source, "url": url, "target": target}
+    field = str(value.get("field") or value.get("source_field") or "").strip()
+    if not field:
+        raise ValueError("jump rule requires a source field")
+    raw_type = str(value.get("link_type") or value.get("linkType") or value.get("type") or "outer").lower()
+    link_type = {"external": "outer", "url": "outer", "internal": "inner", "dashboard": "inner", "datav": "inner"}.get(raw_type, raw_type)
+    if link_type not in {"outer", "inner"}:
+        raise ValueError("jump link_type must be outer/external or inner/internal")
+    target_value = value.get("target")
+    jump_type = str(value.get("jump_type") or value.get("open_mode") or (target_value if isinstance(target_value, str) else "") or "_blank")
+    if jump_type not in {"_self", "_blank", "newPop"}:
+        raise ValueError("jump open_mode must be _self, _blank, or newPop")
+    window_size = str(value.get("window_size") or value.get("windowSize") or "middle")
+    if window_size not in {"large", "middle", "small"}:
+        raise ValueError("jump window_size must be large, middle, or small")
+    result: dict[str, Any] = {
+        "source": source, "field": field, "link_type": link_type,
+        "jump_type": jump_type, "window_size": window_size,
+        "attach_params": bool(value.get("attach_params", value.get("attachParams", False))),
+    }
+    if link_type == "outer":
+        content = str(value.get("url") or value.get("content") or "").strip()
+        parsed = urlsplit(content)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("external jump url must be an absolute http(s) URL")
+        result["content"] = content
+        return result
+    target = target_value if isinstance(target_value, dict) else value.get("target_resource")
+    target = target if isinstance(target, dict) else {}
+    target_dv_id = str(target.get("id") or value.get("target_dv_id") or value.get("targetDvId") or "").strip()
+    target_dv_type = str(target.get("type") or value.get("target_dv_type") or value.get("targetDvType") or "").strip()
+    if not target_dv_id or target_dv_type not in {"dashboard", "dataV"}:
+        raise ValueError("internal jump requires target.id and target.type (dashboard or dataV)")
+    mappings = target.get("mappings", value.get("mappings", []))
+    if not isinstance(mappings, list):
+        raise ValueError("internal jump mappings must be a list")
+    normalized_mappings = []
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            raise ValueError("each internal jump mapping must be an object")
+        target_view_id = str(mapping.get("target_view_id") or mapping.get("targetViewId") or "").strip()
+        target_field_id = str(mapping.get("target_field_id") or mapping.get("targetFieldId") or "").strip()
+        target_type = str(mapping.get("target_type") or mapping.get("targetType") or "view").strip()
+        source_field = str(mapping.get("source_field") or mapping.get("sourceField") or field).strip()
+        if not target_view_id or not target_field_id or target_type not in {"view", "filter", "outParams"}:
+            raise ValueError("internal mapping requires target_view_id, target_field_id, and target_type")
+        normalized_mappings.append({"source_field": source_field, "target_view_id": target_view_id, "target_field_id": target_field_id, "target_type": target_type})
+    result.update({"target_dv_id": target_dv_id, "target_dv_type": target_dv_type, "mappings": normalized_mappings})
+    return result
 
 
-def apply_jump_event(component: dict[str, Any], view: dict[str, Any], jump: dict[str, Any]) -> None:
-    """Write a complete, version-stable event envelope for a chart URL jump."""
-    normalized = normalize_jump_rule(jump)
-    events = component.setdefault("events", {})
-    events.setdefault("showTips", False)
-    events["checked"] = True
-    events["type"] = "jump"
-    events.setdefault("typeList", [
-        {"key": key, "label": key}
-        for key in ("jump", "download", "share", "fullScreen", "showHidden", "refreshDataV", "refreshView")
-    ])
-    events["jump"] = {"value": normalized["url"], "type": normalized["target"]}
-    view["jumpActive"] = True
+def normalize_link_jump_rules(value: list[Any]) -> list[dict[str, Any]]:
+    """Expand chart-level `fields` shorthand into DataEase's per-field jump records."""
+    result: list[dict[str, Any]] = []
+    for rule in value:
+        if not isinstance(rule, dict):
+            raise ValueError("jump rule must be an object")
+        fields = rule.get("fields")
+        if fields is None:
+            result.append(normalize_jump_rule(rule, require_source=True))
+            continue
+        if not isinstance(fields, list) or not fields:
+            raise ValueError("jump fields must be a non-empty list")
+        for field_rule in fields:
+            if isinstance(field_rule, str):
+                field_rule = {"field": field_rule}
+            if not isinstance(field_rule, dict):
+                raise ValueError("each jump field must be a name or object")
+            combined = {key: item for key, item in rule.items() if key != "fields"}
+            combined.update(field_rule)
+            result.append(normalize_jump_rule(combined, require_source=True))
+    return result
+
+
+def build_native_link_jump_payloads(
+    dashboard_id: str,
+    rules: list[dict[str, Any]],
+    source_views: dict[str, str],
+    field_id_for: Any,
+) -> list[dict[str, Any]]:
+    """Build `/linkJump/updateJumpSet` payloads from validated declarative rules."""
+    by_source: dict[str, list[dict[str, Any]]] = {}
+    for rule in rules:
+        by_source.setdefault(str(rule["source"]), []).append(rule)
+    payloads = []
+    for source, entries in by_source.items():
+        source_view_id = source_views.get(source)
+        if not source_view_id:
+            raise ValueError(f"jump source does not match a chart title: {source}")
+        info_array = []
+        for rule in entries:
+            source_field_id = str(field_id_for(source, rule["field"]))
+            info: dict[str, Any] = {
+                "linkType": rule["link_type"], "jumpType": rule["jump_type"],
+                "windowSize": rule["window_size"], "sourceFieldId": source_field_id,
+                "checked": True, "attachParams": rule["attach_params"],
+            }
+            if rule["link_type"] == "outer":
+                def replace_field(match: re.Match[str]) -> str:
+                    selector = match.group(1).strip()
+                    return f"[{field_id_for(source, selector)}]" if not selector.isdigit() else match.group(0)
+                info["content"] = re.sub(r"\[([^\]]+)\]", replace_field, rule["content"])
+            else:
+                info["targetDvId"] = rule["target_dv_id"]
+                info["targetDvType"] = rule["target_dv_type"]
+                info["targetViewInfoList"] = [
+                    {"sourceFieldActiveId": str(field_id_for(source, item["source_field"])),
+                     "targetViewId": item["target_view_id"], "targetFieldId": item["target_field_id"],
+                     "targetType": item["target_type"]}
+                    for item in rule["mappings"]
+                ]
+            info_array.append(info)
+        payloads.append({"sourceDvId": dashboard_id, "sourceViewId": source_view_id, "checked": True, "linkJumpInfoArray": info_array})
+    return payloads
 
 
 def build_query_component(

@@ -14,7 +14,7 @@ from .field_binding import bind_field_metadata
 from .chart_catalog import (
     SUPPORTED_CHART_TYPES, apply_native_chart_defaults, chart_adapter, native_chart_type,
 )
-from .interaction_planner import apply_jump_event, build_query_component, normalize_interactions, normalize_jump_rule, shared_linkages
+from .interaction_planner import build_native_link_jump_payloads, build_query_component, normalize_interactions, shared_linkages
 from .theme_engine import BUILTIN_THEMES, color_with_alpha, resolve_theme
 from .visual_typography import responsive_typography
 
@@ -663,7 +663,13 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             if canvas_config.get("screen_adaptor"):
                 canvas_style["screenAdaptor"] = str(canvas_config["screen_adaptor"])
         canvas_style = self._apply_canvas_theme(canvas_style, theme)
-        interaction_plan = normalize_interactions(interactions)
+        interaction_input = dict(interactions or {})
+        declared_jumps = list(interaction_input.get("jumps") or [])
+        for chart in charts_config:
+            if chart.get("jump") is not None:
+                declared_jumps.append({**dict(chart["jump"]), "source": chart.get("title")})
+        interaction_input["jumps"] = declared_jumps
+        interaction_plan = normalize_interactions(interaction_input)
         configured_titles = {
             str(item.get("title")).strip() for item in charts_config
             if str(item.get("title") or "").strip()
@@ -743,9 +749,6 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                     drill_ctx[f"XAXIS{'' if pos == 0 else pos + 1}_FIELD_METADATA"]
                     for pos in range(len(drill_fields))
                 ]
-            jump = config.get("jump") or next((item for item in interaction_plan["jumps"] if item.get("source") == config.get("title")), None)
-            if jump is not None:
-                apply_jump_event(component, view, normalize_jump_rule(jump))
             component["_dragId"] = index
             component_data.append(component)
             canvas_view_info[view_id] = view
@@ -798,6 +801,36 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         if save_body.get("code") not in (None, 0):
             raise RuntimeError(f"saveCanvas failed: {save_body.get('msg')}")
         dashboard_id = str(save_body["data"])
+        source_views = {
+            str(config.get("title")): chart_view_ids[index]
+            for index, config in enumerate(charts_config)
+            if str(config.get("title") or "").strip()
+        }
+        field_ids: dict[tuple[str, str], str] = {}
+
+        def field_id_for(source: str, field: str) -> str:
+            cache_key = (source, field)
+            if cache_key not in field_ids:
+                chart = next(item for item in charts_config if str(item.get("title") or "") == source)
+                ctx = self.get_dataset_ctx(str(chart["dataset_name"]), [field], [])
+                field_ids[cache_key] = str(ctx["XAXIS_FIELD_METADATA"]["id"])
+            return field_ids[cache_key]
+
+        for jump_payload in build_native_link_jump_payloads(
+            dashboard_id, interaction_plan["jumps"], source_views, field_id_for,
+        ):
+            jump_response = self.client.post("/linkJump/updateJumpSet", jump_payload)
+            jump_response.raise_for_status()
+            jump_body = jump_response.json()
+            if jump_body.get("code") not in (None, 0):
+                raise RuntimeError(f"updateJumpSet failed: {jump_body.get('msg')}")
+            active_response = self.client.post("/linkJump/updateJumpSetActive", {
+                "sourceDvId": dashboard_id, "sourceViewId": jump_payload["sourceViewId"], "activeStatus": True,
+            })
+            active_response.raise_for_status()
+            active_body = active_response.json()
+            if active_body.get("code") not in (None, 0):
+                raise RuntimeError(f"updateJumpSetActive failed: {active_body.get('msg')}")
         if interaction_plan["auto_linkage"]:
             for linkage in shared_linkages(charts_config, chart_view_ids, canvas_view_info):
                 linkage_response = self.client.post("/linkage/saveLinkage", {"dvId": dashboard_id, **linkage})

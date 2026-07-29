@@ -40,7 +40,12 @@
       {"chart": "各区域销售额", "fields": ["省", "市", "区县"]}
     ],
     "jumps": [
-      {"chart": "各区域销售额", "url": "https://example.invalid/detail", "target": "_blank"}
+      {
+        "chart": "各区域销售额",
+        "fields": [
+          {"field": "省", "link_type": "outer", "url": "https://example.invalid/detail?province=[省]", "open_mode": "newPop", "window_size": "middle"}
+        ]
+      }
     ]
   }
 }
@@ -74,6 +79,8 @@ Dashboard and DataV use the same resolved theme contract. DataV additionally app
 Query styling is background-aware. The planner calculates the canvas background luminance and writes a complete native `VQuery.customStyle.component`: dark canvases receive light labels/placeholders, translucent dark inputs and high-contrast borders; light canvases receive dark labels and white inputs. The query button inherits the active theme accent.
 
 Browser verification requires both a visible `.v-query-container` and at least the requested number of visible `.query-item` controls; a saved but blank query component fails creation and triggers compensating cleanup. `linkage` automatically links only chart views from the same dataset that share an x-axis field. `drill_hierarchies` enables field-level drill metadata, and `jumps` writes an explicit URL event. Cross-dataset cascades/linkage, arbitrary SQL relationships and page-to-page parameter contracts are never guessed.
+
+`jumps` uses DataEase's native field-level jump records rather than a component event. Every rule requires `source`/`chart` and a source `field`; use `fields` to configure several clickable fields for one chart. `link_type: "outer"` accepts an `http`/`https` `url` whose `[字段名]` references are rewritten to authoritative DataEase field IDs. `open_mode` supports `_self`, `_blank`, and `newPop`; `newPop` accepts `window_size` `large`/`middle`/`small`; `attach_params` attaches click parameters. For dashboard/DataV jumps use `link_type: "inner"`, `target: {"id": "资源ID", "type": "dashboard|dataV", "mappings": [...]}`; each mapping supplies `target_view_id`, `target_field_id`, and `target_type` (`view`, `filter`, or `outParams`) and may override `source_field`. The Skill saves these records through `/linkJump/updateJumpSet`, activates them through `/linkJump/updateJumpSetActive`, and reads the native jump summary back after creation.
 
 `dataset plan` can emit a v2 spec from several datasets. Each chart still binds to one DataEase dataset; `dataset_relationships` are review candidates, not executed joins. The semantic layout planner classifies KPI, trend, composition, ranking, comparison and detail components. It places KPI cards first, gives trends more width, uses composition charts as companions and reserves full-width bottom rows for detail tables. Dashboard uses the generated responsive 72×36 grid; DataV also receives matching canvas pixels. Custom `layout` values remain authoritative, and grid-only DataV layouts are completed without replacing explicit pixels.
 

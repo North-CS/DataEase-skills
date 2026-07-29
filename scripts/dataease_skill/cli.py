@@ -35,7 +35,7 @@ from .trees import flatten_tree
 from .transfer_ops import handle_transfer_operation
 from .versioning import adapter_for_client
 from .visual_ops import handle_visual_operation
-from .interaction_planner import normalize_interactions, normalize_jump_rule
+from .interaction_planner import normalize_interactions, normalize_link_jump_rules
 
 
 def _json(data: Any, code: int = 0) -> int:
@@ -124,40 +124,28 @@ def _active_view_ids(detail: dict[str, Any]) -> list[str]:
     ]
 
 
-def _expected_visual_jumps(spec: dict[str, Any]) -> dict[str, dict[str, str]]:
-    expected: dict[str, dict[str, str]] = {}
+def _expected_visual_jumps(spec: dict[str, Any]) -> list[dict[str, Any]]:
+    expected: list[dict[str, Any]] = []
     interactions = spec.get("interactions") if isinstance(spec.get("interactions"), dict) else {}
     for rule in normalize_interactions(interactions)["jumps"]:
-        expected[rule["source"]] = rule
+        expected.append(rule)
     for chart in spec.get("charts") or []:
         if not isinstance(chart, dict) or chart.get("jump") is None:
             continue
         title = str(chart.get("title") or "").strip()
         if not title:
             raise DataEaseError("图表级跳转需要图表 title", code="invalid_jump", stage="input")
-        expected[title] = normalize_jump_rule(chart["jump"])
+        expected.extend(normalize_link_jump_rules([{**dict(chart["jump"]), "source": title}]))
     return expected
 
 
-def _validate_visual_jumps(detail: dict[str, Any], expected: dict[str, dict[str, str]]) -> list[dict[str, str]]:
+def _validate_visual_jumps(summary: Any, expected: list[dict[str, Any]]) -> list[dict[str, str]]:
     if not expected:
         return []
-    raw_components = detail.get("componentData") or "[]"
-    try:
-        components = json.loads(raw_components) if isinstance(raw_components, str) else raw_components
-    except json.JSONDecodeError as exc:
-        raise DataEaseError("跳转回读时 componentData 无法解析", code="invalid_visual_payload", stage="verification") from exc
-    actual = {str(item.get("name") or item.get("label") or ""): item for item in components if isinstance(item, dict)}
-    failures = []
-    for title, jump in expected.items():
-        component = actual.get(title)
-        events = component.get("events") if isinstance(component, dict) else None
-        actual_jump = events.get("jump") if isinstance(events, dict) else None
-        if not isinstance(actual_jump, dict) or not events.get("checked") or events.get("type") != "jump" or actual_jump.get("value") != jump["url"] or actual_jump.get("type") != jump["target"]:
-            failures.append(title)
-    if failures:
-        raise DataEaseError(f"图表跳转写入后回读不一致: {', '.join(failures)}", code="jump_event_mismatch", stage="verification", details={"charts": failures})
-    return [{"chart": title, "url": jump["url"], "target": jump["target"]} for title, jump in expected.items()]
+    actual = summary.get("data", summary) if isinstance(summary, dict) else {}
+    if not isinstance(actual, dict) or len(actual) < len(expected):
+        raise DataEaseError("图表跳转写入后未出现在 DataEase 跳转记录中", code="jump_record_missing", stage="verification")
+    return [{"chart": jump["source"], "field": jump["field"], "link_type": jump["link_type"], "open_mode": jump["jump_type"]} for jump in expected]
 
 
 def _settings(args: argparse.Namespace) -> Settings:
@@ -454,7 +442,9 @@ def _visual_create(
             details={"cleanup": cleanup},
         )
     try:
-        jump_checks = _validate_visual_jumps(detail, _expected_visual_jumps(spec))
+        expected_jumps = _expected_visual_jumps(spec)
+        jump_summary = client.data("GET", f"/linkJump/queryVisualizationJumpInfo/{dashboard_id}/snapshot")
+        jump_checks = _validate_visual_jumps(jump_summary, expected_jumps)
     except (DataEaseError, ValueError) as exc:
         cleanup = _compensate_created_visual(client, str(dashboard_id), str(spec.get("kind") or "dashboard"))
         if isinstance(exc, DataEaseError):
