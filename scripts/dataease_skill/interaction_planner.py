@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from urllib.parse import urlsplit
 import re
 from typing import Any
 
@@ -198,17 +199,62 @@ def normalize_interactions(value: Any) -> dict[str, Any]:
                 if len(normalized_chain) >= 2 and len(set(normalized_chain)) == len(normalized_chain):
                     filter_cascades.append(normalized_chain)
     drill_rules = value.get("drill_hierarchies") if isinstance(value.get("drill_hierarchies"), list) else []
-    jump_rules = value.get("jumps") if isinstance(value.get("jumps"), list) else []
-    for rule in [*drill_rules, *jump_rules]:
-        if isinstance(rule, dict) and not rule.get("source") and rule.get("chart"):
-            rule["source"] = rule["chart"]
+    raw_jump_rules = value.get("jumps") if isinstance(value.get("jumps"), list) else []
+    jump_rules = []
+    seen_jump_sources: set[str] = set()
+    for rule in raw_jump_rules:
+        normalized = normalize_jump_rule(rule, require_source=True)
+        source = normalized["source"]
+        if source in seen_jump_sources:
+            raise ValueError(f"duplicate jump rule for chart: {source}")
+        seen_jump_sources.add(source)
+        jump_rules.append(normalized)
+    normalized_drills = []
+    for rule in drill_rules:
+        if isinstance(rule, dict):
+            normalized = dict(rule)
+            if not normalized.get("source") and normalized.get("chart"):
+                normalized["source"] = normalized["chart"]
+            normalized_drills.append(normalized)
     return {
         "filters": normalized_filters,
         "filter_cascades": filter_cascades,
         "auto_linkage": bool(value.get("auto_linkage", value.get("linkage", False))),
-        "drill_hierarchies": drill_rules,
+        "drill_hierarchies": normalized_drills,
         "jumps": jump_rules,
     }
+
+
+def normalize_jump_rule(value: Any, *, require_source: bool = False) -> dict[str, str]:
+    """Validate the native URL-event contract before a canvas is saved."""
+    if not isinstance(value, dict):
+        raise ValueError("jump rule must be an object")
+    source = str(value.get("source") or value.get("chart") or "").strip()
+    if require_source and not source:
+        raise ValueError("jump rule requires source (or chart)")
+    url = str(value.get("url") or "").strip()
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("jump url must be an absolute http(s) URL")
+    target = str(value.get("target") or "_blank").strip()
+    if target not in {"_blank", "_self"}:
+        raise ValueError("jump target must be _blank or _self")
+    return {"source": source, "url": url, "target": target}
+
+
+def apply_jump_event(component: dict[str, Any], view: dict[str, Any], jump: dict[str, Any]) -> None:
+    """Write a complete, version-stable event envelope for a chart URL jump."""
+    normalized = normalize_jump_rule(jump)
+    events = component.setdefault("events", {})
+    events.setdefault("showTips", False)
+    events["checked"] = True
+    events["type"] = "jump"
+    events.setdefault("typeList", [
+        {"key": key, "label": key}
+        for key in ("jump", "download", "share", "fullScreen", "showHidden", "refreshDataV", "refreshView")
+    ])
+    events["jump"] = {"value": normalized["url"], "type": normalized["target"]}
+    view["jumpActive"] = True
 
 
 def build_query_component(

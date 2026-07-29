@@ -265,6 +265,33 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((canvas["width"], canvas["height"]), (3840, 2160))
         self.assertEqual((component["style"]["width"], component["style"]["height"]), (3840, 2160))
 
+    def test_deploy_writes_and_validates_chart_jump(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        engine.base_url = "http://example"
+        engine.client = _FakeVisualClient()
+        engine.rand_id = _sequential_ids()
+        engine.extract_chart_payload = _fake_extract_chart_payload
+        engine._apply_component_theme = lambda *_args: None
+        engine._detect_check_version = lambda: "2.10.25"
+        engine.deploy_multi(
+            "跳转测试", [{"type": "bar", "title": "区域销售", "dataset_name": "1"}],
+            interactions={"jumps": [{"chart": "区域销售", "url": "https://example.invalid/detail", "target": "_self"}]},
+            publish=False, append_timestamp=False,
+        )
+        component = json.loads(engine.client.saved_payload["componentData"])[0]
+        view = engine.client.saved_payload["canvasViewInfo"]["1"]
+        self.assertEqual(component["events"]["jump"], {"value": "https://example.invalid/detail", "type": "_self"})
+        self.assertTrue(view["jumpActive"])
+
+    def test_deploy_rejects_jump_for_unknown_chart_title(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        with self.assertRaisesRegex(ValueError, "does not match a chart title"):
+            engine.deploy_multi(
+                "跳转测试", [{"type": "bar", "title": "区域销售", "dataset_name": "1"}],
+                interactions={"jumps": [{"chart": "不存在", "url": "https://example.invalid"}]},
+                publish=False, append_timestamp=False,
+            )
+
     def test_dark_theme_preserves_explicit_canvas_size(self):
         engine = object.__new__(MultiDataEaseChartEngine)
         canvas = engine._apply_canvas_theme(

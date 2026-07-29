@@ -14,7 +14,7 @@ from .field_binding import bind_field_metadata
 from .chart_catalog import (
     SUPPORTED_CHART_TYPES, apply_native_chart_defaults, chart_adapter, native_chart_type,
 )
-from .interaction_planner import build_query_component, normalize_interactions, shared_linkages
+from .interaction_planner import apply_jump_event, build_query_component, normalize_interactions, normalize_jump_rule, shared_linkages
 from .theme_engine import BUILTIN_THEMES, color_with_alpha, resolve_theme
 from .visual_typography import responsive_typography
 
@@ -664,6 +664,16 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 canvas_style["screenAdaptor"] = str(canvas_config["screen_adaptor"])
         canvas_style = self._apply_canvas_theme(canvas_style, theme)
         interaction_plan = normalize_interactions(interactions)
+        configured_titles = {
+            str(item.get("title")).strip() for item in charts_config
+            if str(item.get("title") or "").strip()
+        }
+        unknown_jump_sources = sorted({
+            str(item["source"]) for item in interaction_plan["jumps"]
+            if str(item["source"]) not in configured_titles
+        })
+        if unknown_jump_sources:
+            raise ValueError(f"jump source does not match a chart title: {', '.join(unknown_jump_sources)}")
         reserved_top_rows = (
             4 if interaction_plan["filters"] and not any(item.get("layout") for item in charts_config) else 0
         )
@@ -733,13 +743,9 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                     drill_ctx[f"XAXIS{'' if pos == 0 else pos + 1}_FIELD_METADATA"]
                     for pos in range(len(drill_fields))
                 ]
-            jump = config.get("jump") or next((item for item in interaction_plan["jumps"] if isinstance(item, dict) and item.get("source") == config.get("title")), None)
-            if isinstance(jump, dict) and jump.get("url"):
-                view["jumpActive"] = True
-                component.setdefault("events", {}).update({
-                    "checked": True, "type": "jump",
-                    "jump": {"value": str(jump["url"]), "type": str(jump.get("target") or "_blank")},
-                })
+            jump = config.get("jump") or next((item for item in interaction_plan["jumps"] if item.get("source") == config.get("title")), None)
+            if jump is not None:
+                apply_jump_event(component, view, normalize_jump_rule(jump))
             component["_dragId"] = index
             component_data.append(component)
             canvas_view_info[view_id] = view

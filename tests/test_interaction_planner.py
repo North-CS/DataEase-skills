@@ -8,12 +8,25 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from dataease_skill.interaction_planner import (
-    build_query_component, infer_filter_cascades, normalize_interactions,
+    apply_jump_event, build_query_component, infer_filter_cascades, normalize_interactions, normalize_jump_rule,
     query_style_for_background, shared_linkages,
 )
 
 
 class InteractionPlannerTests(unittest.TestCase):
+    def test_jump_rule_rejects_unsafe_url_and_invalid_target(self):
+        with self.assertRaisesRegex(ValueError, "absolute http"):
+            normalize_jump_rule({"url": "javascript:alert(1)"})
+        with self.assertRaisesRegex(ValueError, "_blank or _self"):
+            normalize_jump_rule({"url": "https://example.invalid", "target": "new-window"})
+
+    def test_jump_event_has_complete_native_envelope(self):
+        component, view = {"events": {}}, {}
+        apply_jump_event(component, view, {"url": "https://example.invalid/detail", "target": "_self"})
+        self.assertTrue(component["events"]["checked"])
+        self.assertEqual(component["events"]["jump"], {"value": "https://example.invalid/detail", "type": "_self"})
+        self.assertIn({"key": "jump", "label": "jump"}, component["events"]["typeList"])
+        self.assertTrue(view["jumpActive"])
     def test_query_component_binds_real_field_and_targets(self):
         field = {"id": "10", "name": "区域", "originName": "region", "type": "VARCHAR", "deType": 0}
         measure = {"id": "20", "name": "销售额", "originName": "sales", "type": "DECIMAL", "deType": 3}

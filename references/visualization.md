@@ -126,7 +126,7 @@ For regional map families, province/city/county/district semantics select DataEa
 
 Automatic planning publishes both `supported_chart_types` and the narrower `auto_plannable_chart_types`. It creates KPI indicators, line trends, stacked areas for multiple measures, bars and horizontal rankings, donut composition, regional/bubble maps, detail and pivot tables. Two measures enable scatter candidates; three measures enable radar candidates; multiple dimensions enable treemaps; stage/status fields enable funnels; keyword/tag fields enable word clouds. Gauge, candle and waterfall still require recognizable semantic patterns. A 12-component per-dataset profile budget prevents chart proliferation. Types outside `auto_plannable_chart_types` remain explicit-only.
 
-Automatic linkage is limited to views from the same dataset with a common dimension. Drill fields can be inferred from recognized geography/product/organization hierarchies or provided explicitly. Jump targets are never guessed and require a URL. Interaction rules accept either `source` or the compatibility alias `chart` as the chart-title selector.
+Automatic linkage is limited to views from the same dataset with a common dimension. Drill fields can be inferred from recognized geography/product/organization hierarchies or provided explicitly. Jump targets are never guessed and require an absolute `http`/`https` URL; `target` is `_blank` or `_self`. Interaction rules accept either `source` or the compatibility alias `chart` as the chart-title selector, and a selector that does not match an explicit chart title is rejected before the canvas is saved. Creation then reads the event back from the saved component and compensates if it differs.
 
 ## Editing an existing resource
 
