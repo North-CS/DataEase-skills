@@ -605,6 +605,13 @@ def _dataset_quick_create(
     table_name = str(args.table_name)
     dataset_name = str(args.name or table_name)
     pid = str(args.pid or "0")
+    bound_plan: dict[str, Any] | None = None
+    if args.apply:
+        if not args.plan_id:
+            raise DataEaseError("执行创建需要 --plan-id", code="plan_required", stage="safety")
+        bound_plan = plans.load(args.plan_id, args.confirm_token, expected_context=_plan_context(client))
+        if bound_plan.get("operation") != operation:
+            raise DataEaseError("plan-id 不属于 dataset.quick-create", code="invalid_plan", stage="safety")
 
     # 1. Check for existing datasets for this table (which have table IDs)
     existing_datasets: list[dict[str, Any]] = []
@@ -634,8 +641,22 @@ def _dataset_quick_create(
         raise DataEaseError(f"表 {table_name} 没有可用字段", code="empty_table", stage="dataset")
 
     # 3. Build dataset DTO
+    # DataEase's dataset editor creates a client-side Snowflake-like ID for a
+    # newly dropped source table.  File uploads commonly return id=null from
+    # getTables, so preserving that null makes /datasetTree/create reject the
+    # first Excel dataset with "field cannot be null".  Generate the same
+    # kind of non-empty numeric identifier the UI uses before assembling the
+    # union DTO.
+    if bound_plan is not None:
+        node_id = str(bound_plan.get("spec", {}).get("node_id") or "")
+        field_id_base = int(bound_plan.get("spec", {}).get("field_id_base") or 0)
+        if not node_id or not field_id_base:
+            raise DataEaseError("创建计划缺少数据集临时 ID，请重新 dry-run", code="invalid_plan", stage="safety")
+    else:
+        node_id = str((int(time.time() * 1000) << 22) | (int(time.time_ns()) & 0x3FFFFF))
+        field_id_base = int(time.time() * 1000)
     current_ds = dict(table)
-    current_ds.pop("id", None)
+    current_ds["id"] = node_id
     current_ds.pop("datasetGroupId", None)
     current_ds["fields"] = None
     current_ds["lastUpdateTime"] = 0
@@ -649,7 +670,8 @@ def _dataset_quick_create(
         de_name = "f_" + hashlib.md5(seed.encode()).hexdigest()[:16]
         ds_fields.append({
             "datasourceId": str(datasource_id),
-            "datasetTableId": None,
+            "id": str(field_id_base + idx + 1),
+            "datasetTableId": node_id,
             "datasetGroupId": None,
             "chartId": None,
             "originName": field.get("originName") or field.get("name", ""),
@@ -677,18 +699,23 @@ def _dataset_quick_create(
             "params": None,
         })
 
-    info = json.dumps([{
+    # Mirror the current Dataset editor's create payload.  In particular, the
+    # first dataset for an uploaded Excel source must carry the client-side
+    # source-table ID through both union.currentDs and every field's
+    # datasetTableId; the older mode/info shorthand drops that relationship.
+    union = [{
         "currentDs": current_ds,
-        "currentDsField": None,
         "currentDsFields": ds_fields,
-    }], ensure_ascii=False, separators=(",", ":"))
-
+        "childrenDs": [],
+        "unionToParent": {"unionType": "left", "unionFields": []},
+    }]
     spec = {
         "name": dataset_name,
         "pid": pid,
         "nodeType": "dataset",
-        "mode": 0,
-        "info": info,
+        "union": union,
+        "allFields": ds_fields,
+        "isCross": False,
     }
 
     ds_type = str(table.get("type", "db")).lower()
@@ -696,7 +723,7 @@ def _dataset_quick_create(
     # 4. Dry-run
     if not args.apply:
         warnings = []
-        if ds_type in ("db", "mysql") and not existing_datasets:
+        if ds_type == "mysql" and not existing_datasets:
             warnings.append(
                 f"数据源表 {table_name} 尚未通过 DataEase Web UI 初始化（getTables 返回 id=null）。"
                 f"创建数据集需要在 Web UI 中先为该表创建首个数据集，后续 API 创建才可用。"
@@ -711,23 +738,21 @@ def _dataset_quick_create(
             target={"table": table_name, "datasource_id": datasource_id, "dataset_name": dataset_name},
             changes=[{"action": "create", "resource": "dataset", "table": table_name, "fields": len(fields), "ds_type": ds_type}],
             risk="L1",
-            spec={"payload_sha256": _digest(spec)},
+            spec={"payload_sha256": _digest(spec), "node_id": node_id, "field_id_base": field_id_base},
             rollback={"strategy": "delete-created-resource", "requires_confirmation": True},
             context=_plan_context(client),
         )
         return _envelope(operation, plan, mode="dry-run", changes=plan["changes"], warnings=warnings)
 
     # 5. Apply
-    if not args.plan_id:
-        raise DataEaseError("执行创建需要 --plan-id", code="plan_required", stage="safety")
-    plan = plans.load(args.plan_id, args.confirm_token, expected_context=_plan_context(client))
+    plan = bound_plan
     if plan.get("operation") != operation or _digest(spec) != plan.get("spec", {}).get("payload_sha256"):
         raise DataEaseError("创建参数与 dry-run 不一致", code="spec_changed", stage="safety")
 
     try:
         response = client.data("POST", "/datasetTree/create", spec)
     except DataEaseError as exc:
-        if "字段不能为空" in str(exc) and ds_type in ("db", "mysql"):
+        if "字段不能为空" in str(exc) and ds_type == "mysql":
             raise DataEaseError(
                 f"API 创建直连数据集失败（DataEase 2.10.25 已知限制）：表 \"{table_name}\" 的数据源表 ID 为空。"
                 f"请先通过 DataEase Web UI（数据准备 → 数据集 → 新建）为该表创建首个数据集，之后 API 创建即可用。",
