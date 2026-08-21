@@ -13,6 +13,7 @@ from .client import DataEaseClient
 from .config import Settings
 from .errors import DataEaseError
 from .safety import PlanStore
+from .versioning import adapter_for_client
 
 
 MAX_FILE_BYTES = 500 * 1024 * 1024
@@ -193,6 +194,8 @@ def create_file_datasource(args: Any, settings: Settings, client: DataEaseClient
         ])
     if not args.plan_id:
         raise DataEaseError("执行创建需要 --plan-id", code="plan_required", stage="safety")
+    version, adapter = adapter_for_client(client)
+    adapter.require("file_datasource", version, mutation=True, client=client)
     plan = plans.load(args.plan_id, getattr(args, "confirm_token", ""), expected_context=_context(client))
     spec = plan.get("spec", {})
     if plan.get("operation") != operation or spec.get("file_sha256") != info["sha256"] or spec.get("name") != target["name"] or spec.get("pid") != target["pid"] or spec.get("sheets") != target["sheets"]:

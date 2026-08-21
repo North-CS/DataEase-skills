@@ -1876,13 +1876,14 @@ def run(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        key = f"{args.domain}.{args.action}"
+        # Local file generation is deliberately usable before any DataEase instance exists.
+        if key == "file-datasource.generate":
+            return _json(generate_file(args))
         settings = _settings(args)
         settings.output_dir.mkdir(parents=True, exist_ok=True)
         plans = PlanStore(settings.output_dir)
         audit = AuditLog(settings.output_dir)
-        key = f"{args.domain}.{args.action}"
-        if key == "file-datasource.generate":
-            return _json(generate_file(args))
         with DataEaseClient(settings) as client:
             if settings.org_id:
                 client.ensure_organization(settings.org_id)

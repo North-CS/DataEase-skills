@@ -130,6 +130,7 @@ BASE_FEATURES = frozenset(
         "calculated_fields",
         "sql_dataset",
         "dataset_parameters",
+        "file_datasource",
         "row_column_permissions",
         "resource_permissions",
         "json_backup_restore",
