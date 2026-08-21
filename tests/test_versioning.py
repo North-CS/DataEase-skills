@@ -46,16 +46,13 @@ class VersionAdapterTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             adapter.require("visual_component_edit", version, mutation=True, client=client)
 
-    def test_21026_allows_only_live_verified_file_workflow(self):
+    def test_21026_uses_verified_source_and_api_adapter(self):
         version, adapter = select_adapter("2.10.26")
         self.assertEqual(adapter.name, "v2.10.26")
-        self.assertFalse(adapter.is_verified(version))
-        self.assertTrue(adapter.is_verified(version, "file_datasource"))
+        self.assertTrue(adapter.is_verified(version))
         with patch.dict("os.environ", {}, clear=True):
             adapter.require("file_datasource", version, mutation=True)
-            with self.assertRaises(DataEaseError) as raised:
-                adapter.require("plugin_management", version, mutation=True)
-        self.assertEqual(raised.exception.code, "unverified_version_mutation")
+            adapter.require("plugin_management", version, mutation=True)
 
     def test_rejects_unsupported_or_unparseable_version(self):
         self.assertEqual(parse_version({"version": "2.10.25"}), (2, 10, 25))

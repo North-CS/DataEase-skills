@@ -277,12 +277,17 @@ def aes_decrypt(cipher_text, secret_key):
     secret_key_bytes = secret_key.encode("utf-8")
     if len(secret_key_bytes) not in (16, 24, 32):
         raise ValueError("dekey 中的 AES key 长度不合法")
-    decryptor = Cipher(
-        algorithms.AES(secret_key_bytes), modes.CBC(b"0000000000000000")
-    ).decryptor()
-    padded = decryptor.update(base64.b64decode(cipher_text)) + decryptor.finalize()
-    unpadder = symmetric_padding.PKCS7(algorithms.AES.block_size).unpadder()
-    return (unpadder.update(padded) + unpadder.finalize()).decode("utf-8")
+    # v2.10.26 derives the /dekey IV from SHA-256(aesKey); older releases
+    # use the all-zero IV.  Keep both paths for capture login compatibility.
+    for iv in (hashlib.sha256(secret_key_bytes).digest()[:16], b"0000000000000000"):
+        try:
+            decryptor = Cipher(algorithms.AES(secret_key_bytes), modes.CBC(iv)).decryptor()
+            padded = decryptor.update(base64.b64decode(cipher_text)) + decryptor.finalize()
+            unpadder = symmetric_padding.PKCS7(algorithms.AES.block_size).unpadder()
+            return (unpadder.update(padded) + unpadder.finalize()).decode("utf-8")
+        except Exception:
+            pass
+    raise ValueError("dekey 公钥解密失败")
 
 
 def split_dekey(dekey):

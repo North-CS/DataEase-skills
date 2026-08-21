@@ -64,10 +64,21 @@ def decrypt_dekey_public_key(cipher_text: str, key: str) -> str:
     key_bytes = key.encode("utf-8")
     if len(key_bytes) not in (16, 24, 32):
         raise DataEaseError("DataEase dekey 中的 AES key 长度不合法", code="invalid_dekey", stage="authentication")
-    decryptor = Cipher(algorithms.AES(key_bytes), modes.CBC(b"0000000000000000")).decryptor()
-    padded = decryptor.update(base64.b64decode(cipher_text)) + decryptor.finalize()
-    unpadder = symmetric_padding.PKCS7(algorithms.AES.block_size).unpadder()
-    return (unpadder.update(padded) + unpadder.finalize()).decode("utf-8").strip()
+    # DataEase <= 2.10.25 used an all-zero IV for the /dekey public key.
+    # DataEase 2.10.26 derives it as the first 16 SHA-256 bytes of aesKey
+    # (RsaUtils.deriveIv).  Try the current protocol first and retain the
+    # legacy path so password login remains compatible with older servers.
+    iv_candidates = (hashlib.sha256(key_bytes).digest()[:16], b"0000000000000000")
+    last_error: Exception | None = None
+    for iv in iv_candidates:
+        try:
+            decryptor = Cipher(algorithms.AES(key_bytes), modes.CBC(iv)).decryptor()
+            padded = decryptor.update(base64.b64decode(cipher_text)) + decryptor.finalize()
+            unpadder = symmetric_padding.PKCS7(algorithms.AES.block_size).unpadder()
+            return (unpadder.update(padded) + unpadder.finalize()).decode("utf-8").strip()
+        except Exception as exc:
+            last_error = exc
+    raise DataEaseError("DataEase dekey 公钥解密失败", code="invalid_dekey", stage="authentication") from last_error
 
 
 def rsa_encrypt(plain_text: str, public_key: str) -> str:

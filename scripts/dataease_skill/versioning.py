@@ -187,11 +187,10 @@ ADAPTERS = (
         name="v2.10.26",
         minimum=(2, 10, 26),
         maximum=(2, 10, 27),
-        verified_through=(2, 10, 25),
+        verified_through=(2, 10, 26),
         visual_detail_mode="request-post",
         linkage_resource_table=True,
         features=BASE_FEATURES | {"plugin_management", "dataset_export"},
-        verified_features=frozenset({"file_datasource"}),
     ),
     VersionAdapter(
         name="v2.10.27+",

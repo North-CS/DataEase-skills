@@ -29,7 +29,7 @@ Plans expire after 30 minutes. Re-run dry-run if the target, organization, versi
 ## Version gates
 
 - Run `system adapter` before using advanced mutations.
-- The adapter is source-verified through DataEase `2.10.25`. A higher version is read-only by default.
+- The adapter is source/API-verified through DataEase `2.10.26`; its changed `/dekey` AES-CBC IV is handled with a 2.10.26-first and legacy fallback decrypt path. A version of `2.10.27` or higher is read-only by default.
 - `DATAEASE_ALLOW_UNVERIFIED_VERSION=true` is only for an isolated compatibility run after inspecting endpoint/DTO differences. Do not set it globally in production.
 - Unsupported features return `capability_unavailable`; do not silently switch to UI automation for permissions, plugins or destructive operations.
 

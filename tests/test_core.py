@@ -3,15 +3,19 @@ import json
 import os
 import tempfile
 import unittest
+import base64
+import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from scripts.dataease_skill.config import Settings
 from scripts.dataease_skill.client import DataEaseClient, _payload_secrets, _sanitize_value
-from scripts.dataease_skill.crypto import build_ask_headers
+from scripts.dataease_skill.crypto import build_ask_headers, decrypt_dekey_public_key
 from scripts.dataease_skill.errors import DataEaseError
 from scripts.dataease_skill.redact import redact, redact_configuration
 from scripts.dataease_skill.safety import PlanStore
+from cryptography.hazmat.primitives import padding as symmetric_padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 
 class SettingsTests(unittest.TestCase):
@@ -202,6 +206,21 @@ class CryptoTests(unittest.TestCase):
         self.assertEqual(headers["accessKey"], "1234567890123456")
         self.assertEqual(len(headers["x-de-ask-token"].split(".")), 3)
         self.assertTrue(headers["signature"])
+
+    @staticmethod
+    def _dekey_cipher(plain_text: str, key: str, iv: bytes) -> str:
+        padder = symmetric_padding.PKCS7(algorithms.AES.block_size).padder()
+        padded = padder.update(plain_text.encode("utf-8")) + padder.finalize()
+        encryptor = Cipher(algorithms.AES(key.encode("utf-8")), modes.CBC(iv)).encryptor()
+        return base64.b64encode(encryptor.update(padded) + encryptor.finalize()).decode("ascii")
+
+    def test_dekey_uses_21026_derived_iv_and_legacy_fallback(self):
+        key = "1234567890abcdef"
+        plain_text = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A"
+        modern = self._dekey_cipher(plain_text, key, hashlib.sha256(key.encode("utf-8")).digest()[:16])
+        legacy = self._dekey_cipher(plain_text, key, b"0000000000000000")
+        self.assertEqual(decrypt_dekey_public_key(modern, key), plain_text)
+        self.assertEqual(decrypt_dekey_public_key(legacy, key), plain_text)
 
 
 class RedactionTests(unittest.TestCase):

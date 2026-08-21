@@ -88,7 +88,7 @@ python scripts/dataease.py system doctor
 3. 回读新数据源后，列出 `datasource tables`，让用户选择目标表；再用 `dataset quick-create` 生成并确认数据集。不要手写 Excel 数据集字段 DTO。
 4. 对已确认创建的数据集运行 `dataset profile`，再用 `visual autopilot` 生成仪表板或 DataV 创建计划。创建数据源、数据集和可视化都是独立的 L1 计划，不能静默连环写入。
 
-仅支持 UTF-8 CSV 和 `.xlsx`；旧 `.xls` 先转换为 `.xlsx`。Excel/CSV 必须有唯一、非空的首行字段名，文件最大 500 MiB。`file-datasource create` 适配 DataEase 的官方 `/datasource/uploadFile` 与 `/datasource/save` 流程；实际写入前仍需用 `system doctor` 和 `system capabilities` 检查目标实例与版本。DataEase `2.10.26` 已完成本地文件→数据源→数据集→Dashboard/DataV 的隔离实测；其余高于适配器通用验证上限的高级写操作仍默认只读，只能在隔离兼容性测试中显式设置 `DATAEASE_ALLOW_UNVERIFIED_VERSION=true` 后执行。详见 `references/specs.md` 和 `references/commands.md`。
+仅支持 UTF-8 CSV 和 `.xlsx`；旧 `.xls` 先转换为 `.xlsx`。Excel/CSV 必须有唯一、非空的首行字段名，文件最大 500 MiB。`file-datasource create` 适配 DataEase 的官方 `/datasource/uploadFile` 与 `/datasource/save` 流程；实际写入前仍需用 `system doctor` 和 `system capabilities` 检查目标实例与版本。DataEase `2.10.26` 已完成 API/DTO 源码核对、用户名密码 dekey 协议适配，以及本地文件→数据源→数据集→Dashboard/DataV 的隔离实测；`2.10.27+` 及不能识别的将来版本仍默认只读，只能在隔离兼容性测试中显式设置 `DATAEASE_ALLOW_UNVERIFIED_VERSION=true` 后执行。详见 `references/specs.md` 和 `references/commands.md`。
 
 ---
 
@@ -188,7 +188,7 @@ Visual spec 可选传入 `canvas.width/height/screen_adaptor/typography`、`them
 | ⏱️ 填报任务 | L2–L3 | 启停为 L2；立即执行和删除为 L3；停止只取消后续调度，不删除任务 |
 | 🚫 禁用用户 | L3 | — |
 | 🔌 数据源连接/结构变更 | L3 | — |
-| 🧪 版本适配 | 动态 | `2.10.26` 的本地文件数据链路已验证；其余高于 `2.10.25` 的高级写操作默认只读，`DATAEASE_ALLOW_UNVERIFIED_VERSION=true` 仅在隔离兼容性测试中使用 |
+| 🧪 版本适配 | 动态 | 已适配至 `2.10.26`；`2.10.27+` 默认只读，`DATAEASE_ALLOW_UNVERIFIED_VERSION=true` 仅在隔离兼容性测试中使用 |
 
 > ⚠️ X-Pack 功能取决于版本、授权和账号权限。`system capabilities` 未确认前不得宣称可用。
 

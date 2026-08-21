@@ -330,6 +330,6 @@ The adapter currently selects these source-verified families:
 | 2.7.x | legacy GET | without `resourceTable` | unavailable | unavailable |
 | 2.8.x-2.9.x | request POST | without `resourceTable` | available | unavailable |
 | 2.10.0-2.10.9 | request POST | without `resourceTable` | available | available |
-| 2.10.10-2.10.25 | request POST | with `resourceTable` | available | available |
+| 2.10.10-2.10.26 | request POST | with `resourceTable` | available | available |
 
-Versions above 2.10.25 use the closest read adapter but mutations are blocked until verified. A controlled compatibility test can opt in with `DATAEASE_ALLOW_UNVERIFIED_VERSION=true`; never enable it by default in production. Versions below 2.7.0 are rejected by this advanced layer.
+Versions above 2.10.26 use the closest read adapter but mutations are blocked until verified. A controlled compatibility test can opt in with `DATAEASE_ALLOW_UNVERIFIED_VERSION=true`; never enable it by default in production. Versions below 2.7.0 are rejected by this advanced layer.

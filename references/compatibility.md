@@ -18,7 +18,7 @@ An Agent can understand the instructions without being able to execute the CLI. 
 
 The DataEase server may run on a different operating system from the Skill host. Only network access to its HTTP(S) endpoint is required; SSH access is not part of normal operation.
 
-Advanced API compatibility is a separate axis from host compatibility. `system adapter` supports source-inspected DataEase `2.7.x` through `2.10.25`, with per-family routing for visual detail, linkage, plugins and export. A future DataEase version may run on a verified Windows/Linux/macOS host yet still be mutation-blocked until its API/DTO behavior is validated.
+Advanced API compatibility is a separate axis from host compatibility. `system adapter` supports source-inspected DataEase `2.7.x` through `2.10.26`, with per-family routing for visual detail, linkage, plugins and export. A future DataEase version may run on a verified Windows/Linux/macOS host yet still be mutation-blocked until its API/DTO behavior is validated.
 
 ## Runtime requirements
 
