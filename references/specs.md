@@ -4,6 +4,25 @@ Use official DataEase DTO-shaped JSON. Prefer piping secret-bearing specs throug
 
 ## Data source and dataset
 
+### Local CSV/XLSX data source
+
+Use `file-datasource generate` when the Agent has already produced structured data and needs a portable local file. The input is intentionally data-only: it accepts `columns`, `rows`, and an optional `sheet`, rather than an unconstrained natural-language prompt.
+
+```json
+{
+  "sheet": "销售明细",
+  "columns": ["日期", "区域", "销售额"],
+  "rows": [
+    ["2026-08-01", "华东", 128000],
+    {"日期": "2026-08-02", "区域": "华南", "销售额": 93000}
+  ]
+}
+```
+
+Generate the file first, then create a dry-run with `file-datasource create --file <path>`. This command supports UTF-8 CSV and XLSX (not legacy XLS), requires unique non-empty headers, and rejects files over 500 MiB. Its apply stage uploads multipart `file`, `id=0`, and `editType=0` to `/datasource/uploadFile`, selects all returned sheets or explicit `--sheet` values, Base64-encodes the returned sheet configuration, and saves an `Excel` datasource through `/datasource/save`. The file digest is bound to the plan; modifying the file, name, folder, or selected sheets requires a new plan.
+
+Do not upload source files containing unapproved personal, secret, or production data. The create plan stores only file metadata and SHA-256, never rows or file bytes. The upload is an L1 write and should be confirmed before `--apply`. Dataset creation and visual creation are later independent plans because their server-generated table and field identifiers are not available during the no-write dry-run.
+
 Data-source configuration differs by connector and DataEase version. Inspect `datasource types` and an equivalent source's redacted shape before creating one. DataEase `2.10.25` MySQL host-mode was validated with this DTO shape:
 
 ```json

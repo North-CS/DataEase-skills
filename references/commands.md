@@ -32,6 +32,16 @@ python scripts/dataease.py datasource table-fields --datasource-id 123 --table-n
 python scripts/dataease.py datasource validate --id 123
 python scripts/dataease.py datasource validate-spec --spec datasource.json
 python scripts/dataease.py datasource sync-logs --id 123 --page 1 --size 20
+# 从结构化数据生成本地 CSV/XLSX（不连接 DataEase）
+python scripts/dataease.py file-datasource generate --spec generated-data.json --output sales.xlsx
+# dry-run 仅校验文件与生成计划；apply 才会上传并创建 Excel 数据源
+python scripts/dataease.py file-datasource create --file sales.xlsx --name "销售模拟数据"
+python scripts/dataease.py file-datasource create --file sales.xlsx --name "销售模拟数据" --apply --plan-id plan-xxxxxxxx
+# 数据源创建后分阶段创建数据集与可视化
+python scripts/dataease.py datasource tables --datasource-id 123
+python scripts/dataease.py dataset quick-create --datasource-id 123 --table-name Sheet1 --name "销售模拟数据"
+python scripts/dataease.py dataset quick-create --datasource-id 123 --table-name Sheet1 --name "销售模拟数据" --apply --plan-id plan-xxxxxxxx
+python scripts/dataease.py visual autopilot --dataset "销售模拟数据" --title "销售驾驶舱" --busi-type dashboard --complexity standard
 
 # Folder lifecycle
 python scripts/dataease.py datasource folder-create --name "业务数据源"
@@ -57,6 +67,7 @@ python scripts/dataease.py dataset delete --id 456 --name "新名称" --ack-no-r
 ```
 
 `datasource sync` maps to DataEase `syncApiDs` and is intentionally limited to API and ExcelRemote source types.
+`file-datasource generate` accepts a JSON object with `columns` and `rows`; each row is either a same-length array or an object keyed by column name. `file-datasource create` supports UTF-8 CSV and XLSX, checks a maximum size of 500 MiB and unique non-empty headers, uploads by DataEase's official multipart endpoint, and only then saves the returned worksheet metadata as an `Excel` data source. It deliberately does not combine datasource, dataset and visualization writes into one `--apply`: the server returns the real table metadata only after upload, and each later resource has its own reviewable plan and rollback boundary.
 
 `datasource tables` returns DataEase's version-native `DatasetTableDTO` records. `datasource table-fields` reuses that DTO, fills the physical-table `info` descriptor when the server omits it, and returns the exact field DTOs required by dataset/model specs. This avoids inventing field IDs or types.
 

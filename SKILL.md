@@ -14,7 +14,7 @@ description: DataEase V2 智能平台技能 — 数据探索、可视化构建�
 | 功能 | 命令族 | 风险 |
 |------|--------|------|
 | 🔍 连接诊断与平台盘点 | `system`、`inventory` | L0 |
-| 📊 数据源、数据集、SQL/多表模型、计算字段与行列权限 | `datasource`、`dataset`、`model` | L0–L3 |
+| 📊 数据源、数据集、SQL/多表模型、计算字段与行列权限 | `datasource`、`dataset`、`model`、`file-datasource` | L0–L3 |
 | 📈 仪表板与 DataV 创建、组件编辑、联动、主题、发布、截图 | `visual` | L0–L3 |
 | 🔐 用户/角色到具体业务资源的权限编排 | `permission` | L0–L3 |
 | 🔄 可移植备份、恢复、跨实例迁移与原生导出 | `transfer` | L0–L3 |
@@ -76,6 +76,19 @@ python scripts/dataease.py system doctor
 6. 🤖 **模型能力降级**：不把看图或复杂 JSON 推理作为创建前提。模型能力有限、无多模态或上下文较小时，优先使用 `visual autopilot`，依据机器可读 `quality.ready/score/failed_checks` 决定是否执行；截图仅作为可选增强。`quality.ready=false` 时不得执行创建；固定 DataV 空间不足时减少组件、提高目标分辨率或改用 dashboard，不得静默改变资源类型。
 7. 🧭 **视觉层级约束**：让模型表达分析意图，由 Skill 统一约束 KPI、主图、辅助图和明细区的数量与层级。避免重复标题、数据集全名占据标题、指标卡泛滥和高密度主题装饰过重；不得要求模型自行计算像素坐标。
 8. 🤝 **先展示再提问**：需要用户选择账号、角色、资源、字段、目标实例或版本时，必须先读取并展示当前可用选项及其关键属性、风险和后果。不得仅凭名称猜测 ID、账号、邮箱、角色、字段映射或跨页面契约。
+
+---
+
+## 📁 本地 Excel/CSV 到可视化
+
+当用户要求由 AI 生成演示数据、上传 CSV/XLSX，并据此创建数据集和仪表板/DataV 时，采用受控的四阶段链路：
+
+1. 先把已确认的字段和行数据写为 JSON 规格，用 `file-datasource generate` 生成 `.csv` 或 `.xlsx`。不得把来源不明或包含敏感数据的文件上传到 DataEase。
+2. 使用 `file-datasource create` 做本地校验和 dry-run；它只记录文件 SHA-256、文件大小、表头数量与工作表名，dry-run 不上传文件。确认后使用同一 `plan_id` 执行上传和 Excel 数据源创建。
+3. 回读新数据源后，列出 `datasource tables`，让用户选择目标表；再用 `dataset quick-create` 生成并确认数据集。不要手写 Excel 数据集字段 DTO。
+4. 对已确认创建的数据集运行 `dataset profile`，再用 `visual autopilot` 生成仪表板或 DataV 创建计划。创建数据源、数据集和可视化都是独立的 L1 计划，不能静默连环写入。
+
+仅支持 UTF-8 CSV 和 `.xlsx`；旧 `.xls` 先转换为 `.xlsx`。Excel/CSV 必须有唯一、非空的首行字段名，文件最大 500 MiB。`file-datasource create` 适配 DataEase 的官方 `/datasource/uploadFile` 与 `/datasource/save` 流程；实际写入前仍需用 `system doctor` 和 `system capabilities` 检查目标实例与版本。详见 `references/specs.md` 和 `references/commands.md`。
 
 ---
 

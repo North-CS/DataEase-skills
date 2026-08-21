@@ -17,6 +17,7 @@ from .capabilities import CapabilityService
 from .client import DataEaseClient
 from .config import Settings
 from .data_ops import datasource_table_fields, datasource_tables, handle_data_mutation
+from .file_datasource_ops import create_file_datasource, generate_file
 from .datasets import DatasetService
 from .errors import DataEaseError
 from .intelligence import build_visual_plan
@@ -1483,6 +1484,20 @@ def build_parser() -> argparse.ArgumentParser:
     solution_execute.add_argument("--plan-id", default="")
     solution_execute.add_argument("--confirm-token", default="")
 
+    file_datasource = domains.add_parser("file-datasource", help="本地 CSV/XLSX 生成、上传并创建 Excel 数据源")
+    file_datasource_actions = file_datasource.add_subparsers(dest="action", required=True)
+    file_generate = file_datasource_actions.add_parser("generate", help="从结构化 JSON 生成 CSV 或 XLSX")
+    file_generate.add_argument("--spec", default="-", help="包含 columns、rows，可选 sheet 的 JSON 文件；- 表示标准输入")
+    file_generate.add_argument("--output", required=True, help="目标 .csv 或 .xlsx 文件")
+    file_create = file_datasource_actions.add_parser("create", help="上传 CSV/XLSX 并创建 DataEase Excel 数据源")
+    file_create.add_argument("--file", required=True)
+    file_create.add_argument("--name", default="")
+    file_create.add_argument("--pid", default="0")
+    file_create.add_argument("--sheet", action="append", default=[], help="按工作表名称或 sheetId 选择；默认全部")
+    file_create.add_argument("--apply", action="store_true")
+    file_create.add_argument("--plan-id", default="")
+    file_create.add_argument("--confirm-token", default="")
+
     datasource = domains.add_parser("datasource")
     datasource_actions = datasource.add_subparsers(dest="action", required=True)
     datasource_list = datasource_actions.add_parser("list")
@@ -1865,13 +1880,15 @@ def run(argv: list[str] | None = None) -> int:
         settings.output_dir.mkdir(parents=True, exist_ok=True)
         plans = PlanStore(settings.output_dir)
         audit = AuditLog(settings.output_dir)
+        key = f"{args.domain}.{args.action}"
+        if key == "file-datasource.generate":
+            return _json(generate_file(args))
         with DataEaseClient(settings) as client:
             if settings.org_id:
                 client.ensure_organization(settings.org_id)
             datasets = DatasetService(client)
             platform = PlatformService(client)
 
-            key = f"{args.domain}.{args.action}"
             if key == "system.doctor":
                 capabilities = CapabilityService(client).scan()
                 result = _envelope(
@@ -1934,6 +1951,8 @@ def run(argv: list[str] | None = None) -> int:
                 )
             elif key == "datasource.validate":
                 result = _envelope(key, client.data("GET", f"/datasource/validate/{args.id}"))
+            elif key == "file-datasource.create":
+                result = create_file_datasource(args, settings, client, plans, audit)
             elif args.domain in {"datasource", "dataset"} and args.action in {
                 "folder-create",
                 "rename",
