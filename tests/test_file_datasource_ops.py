@@ -88,7 +88,7 @@ class FileDatasourceTests(unittest.TestCase):
             source = root / "sales.csv"
             source.write_text("date,amount\n2026-08-01,12\n", encoding="utf-8")
             args = argparse.Namespace(file=str(source), name="销售模拟数据", pid="0", sheet=[], apply=False, plan_id="", confirm_token="")
-            client = FakeFileClient(version="2.10.26")
+            client = FakeFileClient(version="2.10.27")
             settings = Settings(base_url="http://example", x_de_token="token", output_dir=root)
             planned = create_file_datasource(args, settings, client, PlanStore(root), AuditLog(root))
             args.apply, args.plan_id = True, planned["result"]["plan_id"]

@@ -39,12 +39,19 @@ class VersionAdapter:
     visual_detail_mode: str
     linkage_resource_table: bool
     features: frozenset[str]
+    # Features that have an explicit live verification at this adapter's
+    # minimum version even though the full adapter has a lower general
+    # mutation ceiling.  This prevents one verified workflow from silently
+    # enabling unrelated high-risk writes on a newer release.
+    verified_features: frozenset[str] = frozenset()
 
     def matches(self, version: Version) -> bool:
         return version >= self.minimum and (self.maximum is None or version < self.maximum)
 
-    def is_verified(self, version: Version) -> bool:
-        return version <= self.verified_through
+    def is_verified(self, version: Version, feature: str | None = None) -> bool:
+        return version <= self.verified_through or (
+            feature is not None and feature in self.verified_features and version == self.minimum
+        )
 
     def require(
         self,
@@ -68,7 +75,7 @@ class VersionAdapter:
             "true",
             "yes",
         }
-        if mutation and not self.is_verified(version) and not allow_unverified:
+        if mutation and not self.is_verified(version, feature) and not allow_unverified:
             raise DataEaseError(
                 "当前 DataEase 版本高于适配层已验证版本；默认只允许读取，请先验证后再显式设置 DATAEASE_ALLOW_UNVERIFIED_VERSION=true",
                 code="unverified_version_mutation",
@@ -117,6 +124,7 @@ class VersionAdapter:
             "adapter": self.name,
             "verified": self.is_verified(version),
             "verified_through": format_version(self.verified_through),
+            "verified_features": sorted(self.verified_features),
             "visual_detail_mode": self.visual_detail_mode,
             "linkage_resource_table": self.linkage_resource_table,
             "features": sorted(self.features),
@@ -169,6 +177,25 @@ ADAPTERS = (
     VersionAdapter(
         name="v2.10.10+",
         minimum=(2, 10, 10),
+        maximum=(2, 10, 26),
+        verified_through=(2, 10, 25),
+        visual_detail_mode="request-post",
+        linkage_resource_table=True,
+        features=BASE_FEATURES | {"plugin_management", "dataset_export"},
+    ),
+    VersionAdapter(
+        name="v2.10.26",
+        minimum=(2, 10, 26),
+        maximum=(2, 10, 27),
+        verified_through=(2, 10, 25),
+        visual_detail_mode="request-post",
+        linkage_resource_table=True,
+        features=BASE_FEATURES | {"plugin_management", "dataset_export"},
+        verified_features=frozenset({"file_datasource"}),
+    ),
+    VersionAdapter(
+        name="v2.10.27+",
+        minimum=(2, 10, 27),
         maximum=None,
         verified_through=(2, 10, 25),
         visual_detail_mode="request-post",
