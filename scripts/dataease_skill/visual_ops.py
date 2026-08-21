@@ -508,10 +508,15 @@ def handle_visual_operation(args: Any, settings: Settings, client: DataEaseClien
     after_digest = _digest({key: patched.get(key) for key in ("componentData", "canvasStyleData", "canvasViewInfo")})
     if not args.apply:
         snapshot = _snapshot(settings, resource_id, detail)
+        was_published = detail.get("status") in {1, True}
+        planned_changes = [*changes]
+        if was_published:
+            planned_changes.append({"action": "republish", "status": 1})
         plan = plans.create(operation, target={"id": resource_id, "name": detail.get("name"), "type": busi_type},
-                            changes=changes, risk="L2",
+                            changes=planned_changes, risk="L2",
                             spec={"payload_sha256": _digest(spec), "precondition_sha256": before_digest,
-                                  "expected_canvas_sha256": after_digest, "snapshot": snapshot},
+                                  "expected_canvas_sha256": after_digest, "snapshot": snapshot,
+                                  "was_published": was_published},
                             rollback={"strategy": "restore-updateCanvas", "snapshot": snapshot, "automatic": False},
                             context=_context(client))
         return _envelope(operation, plan, mode="dry-run", changes=changes, artifacts=[snapshot])
@@ -524,10 +529,27 @@ def handle_visual_operation(args: Any, settings: Settings, client: DataEaseClien
     if stored.get("precondition_sha256") != before_digest:
         raise DataEaseError("目标大屏已变化，请重新 dry-run", code="target_changed", stage="safety")
     client.data("POST", "/dataVisualization/updateCanvas", patched)
+    republished = False
+    if stored.get("was_published"):
+        active_view_ids = list((patched.get("canvasViewInfo") or {}).keys())
+        client.post(
+            "/dataVisualization/updatePublishStatus",
+            {
+                "id": resource_id,
+                "name": detail.get("name"),
+                "status": 1,
+                "type": busi_type,
+                "mobileLayout": False,
+                "activeViewIds": active_view_ids,
+            },
+        )
+        republished = True
     after = _detail(client, resource_id, busi_type)
     verification = verify_visual_patch(after, patched, spec, before_digest)
+    if stored.get("was_published") and after.get("status") not in {1, True}:
+        raise DataEaseError("补丁后未恢复发布状态", code="verification_failed", stage="verification")
     result = {"id": resource_id, "name": after.get("name"), "type": busi_type,
-              **verification, "snapshot": stored.get("snapshot")}
+              **verification, "republished": republished, "snapshot": stored.get("snapshot")}
     audit_id = audit.write(operation, status="success", risk="L2", target=plan.get("target"),
                            changes=plan.get("changes"), result=result)
     plans.mark_applied(args.plan_id, audit_id)
