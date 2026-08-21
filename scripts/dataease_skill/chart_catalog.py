@@ -97,15 +97,17 @@ def native_chart_type(chart_type: str) -> str:
 
 def apply_native_chart_defaults(view: dict[str, Any], chart_type: str) -> None:
     """Complete DTO fields required by handlers that cannot share the base template verbatim."""
-    if chart_type == "table-pivot":
-        # A grand total across e.g. currency and duration is not meaningful.  DataEase
-        # renders it as "-", so hide both total axes instead of publishing a broken table.
-        units = {_measure_unit(field) for field in view.get("yAxis") or []}
-        units.discard(None)
-        if len(units) > 1:
-            totals = view.setdefault("customAttr", {}).setdefault("tableTotal", {})
-            totals.setdefault("row", {})["showGrandTotals"] = False
-            totals.setdefault("col", {})["showGrandTotals"] = False
+    if chart_type == "table-pivot" and len(view.get("yAxis") or []) > 1:
+        # A default grand total across independent measures (e.g. amount,
+        # count and revenue) has no single business meaning. DataEase renders
+        # some of these generated cells as "-". Keep real detail rows and
+        # suppress implicit row/column totals unless an explicit native total
+        # configuration is supplied by a reviewed user spec.
+        totals = view.setdefault("customAttr", {}).setdefault("tableTotal", {})
+        for axis in ("row", "col"):
+            axis_totals = totals.setdefault(axis, {})
+            axis_totals["showGrandTotals"] = False
+            axis_totals["showSubTotals"] = False
 
     if chart_type == "indicator":
         for field in view.get("yAxis") or []:

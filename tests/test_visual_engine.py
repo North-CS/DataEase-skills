@@ -203,6 +203,35 @@ class LayoutTests(unittest.TestCase):
         self.assertFalse(view["customAttr"]["tableTotal"]["row"]["showGrandTotals"])
         self.assertFalse(view["customAttr"]["tableTotal"]["col"]["showGrandTotals"])
 
+    def test_pivot_with_multiple_measures_hides_implicit_subtotals(self):
+        view = {
+            "yAxis": [{"name": "目标额"}, {"name": "订单量"}],
+            "customAttr": {"tableTotal": {"row": {}, "col": {}}},
+        }
+        apply_native_chart_defaults(view, "table-pivot")
+        for axis in ("row", "col"):
+            self.assertFalse(view["customAttr"]["tableTotal"][axis]["showGrandTotals"])
+            self.assertFalse(view["customAttr"]["tableTotal"][axis]["showSubTotals"])
+
+    def test_line_can_bind_second_measure_to_secondary_y_axis(self):
+        engine = object.__new__(MultiDataEaseChartEngine)
+        engine.get_dataset_ctx = lambda *_args: {
+            "DATASET_GROUP_ID": "100",
+            "XAXIS_FIELD_ID": "11", "XAXIS_DE_NAME": "f_date",
+            "XAXIS_FIELD_METADATA": {"id": "11", "name": "日期", "dataeaseName": "f_date", "groupType": "d", "deType": 0},
+            "YAXIS_FIELD_ID": "21", "YAXIS_DE_NAME": "f_target",
+            "YAXIS_FIELD_METADATA": {"id": "21", "name": "目标额", "dataeaseName": "f_target", "groupType": "q", "deType": 2},
+            "YAXIS2_FIELD_ID": "22", "YAXIS2_DE_NAME": "f_orders",
+            "YAXIS2_FIELD_METADATA": {"id": "22", "name": "订单量", "dataeaseName": "f_orders", "groupType": "q", "deType": 2},
+        }
+        _component, view = engine.extract_chart_payload(
+            "line", "100", ["日期"], ["目标额", "订单量"], "line-dual-axis",
+            {"x": 1, "y": 1, "sizeX": 36, "sizeY": 12},
+            y_aggregations=["sum", "sum"], secondary_y_axis=True,
+        )
+        self.assertEqual([str(item["id"]) for item in view["yAxis"]], ["21"])
+        self.assertEqual([str(item["id"]) for item in view["yAxisExt"]], ["22"])
+
     def test_city_name_is_rejected_for_national_area_map(self):
         with self.assertRaisesRegex(ValueError, "city names"):
             apply_native_chart_defaults({"xAxis": [{"name": "发件城市", "originName": "send_city"}]}, "map")

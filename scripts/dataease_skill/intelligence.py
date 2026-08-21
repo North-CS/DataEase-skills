@@ -39,6 +39,8 @@ WATERFALL_PATTERN = re.compile(
     r"(金额|收入|支出|利润|成本|费用|亏损|盈利|amount|revenue|income|expense|cost|profit|loss)",
     re.I,
 )
+MONEY_MEASURE_PATTERN = re.compile(r"(金额|额|收入|支出|利润|成本|费用|revenue|amount|income|expense|cost|profit)", re.I)
+COUNT_MEASURE_PATTERN = re.compile(r"(订单量|数量|件数|单量|人数|次数|数量|count|quantity|volume|orders?)", re.I)
 GEO_PATTERN = re.compile(r"(国家|大区|区域|省|市|区县|地区|地域|region|province|city|district|country)", re.I)
 STAGE_PATTERN = re.compile(r"(阶段|状态|流程|漏斗|stage|status|phase|funnel)", re.I)
 TEXT_PATTERN = re.compile(r"(关键词|标签|主题|搜索词|词语|keyword|tag|topic|word)", re.I)
@@ -48,6 +50,20 @@ AUTO_PLANNABLE_TYPES = frozenset({
     "map", "bubble-map", "scatter", "funnel", "candle",
 })
 MAX_AUTO_CHARTS_PER_DATASET = 12
+
+
+def _measure_unit_kind(measure: dict[str, Any]) -> str:
+    text = " ".join(str(measure.get(key) or "") for key in ("name", "originName", "description"))
+    if MONEY_MEASURE_PATTERN.search(text):
+        return "currency"
+    if COUNT_MEASURE_PATTERN.search(text):
+        return "count"
+    return "other"
+
+
+def _needs_secondary_y_axis(measures: list[dict[str, Any]]) -> bool:
+    """Keep amount and count trends readable when metadata lacks value ranges."""
+    return len(measures) >= 2 and _measure_unit_kind(measures[0]) != _measure_unit_kind(measures[1])
 
 
 def _profiles(value: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -293,6 +309,7 @@ def build_visual_plan(
                     "x_axis": [dates[0]],
                     "y_axis": measures[:2],
                     "y_aggregations": measure_aggregations[:2],
+                    "secondary_y_axis": _needs_secondary_y_axis(measure_items[:2]),
                     "intent": "trend",
                 }
             )

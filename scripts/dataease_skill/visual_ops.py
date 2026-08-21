@@ -226,6 +226,30 @@ def patch_visual_payload(client: DataEaseClient, detail: dict[str, Any], spec: d
         _deep_merge(view, item["patch"])
         changes.append({"action": "patch-view", "id": str(item["id"]), "fields": sorted(item["patch"])})
 
+    for item in spec.get("axis_moves", []):
+        if not isinstance(item, dict) or not item.get("view_id"):
+            raise DataEaseError("axis_moves 每项需要 view_id", code="invalid_spec", stage="input")
+        from_axis = str(item.get("from_axis") or "")
+        to_axis = str(item.get("to_axis") or "")
+        index = item.get("index", 0)
+        if from_axis not in {"yAxis", "yAxisExt"} or to_axis not in {"yAxis", "yAxisExt"} or from_axis == to_axis or not isinstance(index, int) or index < 0:
+            raise DataEaseError("axis_moves 仅允许在 yAxis 与 yAxisExt 之间移动有效索引", code="invalid_spec", stage="input")
+        view = views.get(str(item["view_id"]))
+        if not isinstance(view, dict):
+            raise DataEaseError(f"找不到图表视图: {item['view_id']}", code="resource_not_found", stage="visualization")
+        source = view.get(from_axis)
+        if not isinstance(source, list) or index >= len(source) or not isinstance(source[index], dict):
+            raise DataEaseError(f"视图 {item['view_id']} 的 {from_axis}[{index}] 不存在", code="invalid_spec", stage="input")
+        target = view.setdefault(to_axis, [])
+        if not isinstance(target, list):
+            raise DataEaseError(f"视图 {item['view_id']} 的 {to_axis} 不是字段数组", code="invalid_visual_payload", stage="visualization")
+        moved = copy.deepcopy(source.pop(index))
+        moved["axisType"] = to_axis
+        moved["seriesId"] = f"{moved.get('id')}-{to_axis}"
+        target.append(moved)
+        changes.append({"action": "move-axis-field", "view_id": str(item["view_id"]),
+                        "from_axis": from_axis, "to_axis": to_axis, "field_id": str(moved.get("id"))})
+
     for item in spec.get("field_replacements", []):
         if not isinstance(item, dict):
             raise DataEaseError("field_replacements 每项必须是对象", code="invalid_spec", stage="input")
@@ -315,6 +339,17 @@ def verify_visual_patch(after: dict[str, Any], expected: dict[str, Any], spec: d
             errors.append(f"view[{item['id']}]")
             continue
         _patch_matches(view, item["patch"], f"view[{item['id']}]", errors)
+    for item in spec.get("axis_moves", []):
+        view = views.get(str(item["view_id"]))
+        expected_view = expected_views.get(str(item["view_id"]))
+        if not isinstance(view, dict) or not isinstance(expected_view, dict):
+            errors.append(f"axis_move[{item.get('view_id')}]")
+            continue
+        expected_fields = expected_view.get(str(item["to_axis"])) or []
+        expected_id = str(expected_fields[-1].get("id")) if expected_fields and isinstance(expected_fields[-1], dict) else ""
+        actual_ids = {str(value.get("id")) for value in view.get(str(item["to_axis"])) or [] if isinstance(value, dict)}
+        if expected_id not in actual_ids:
+            errors.append(f"axis_move[{item['view_id']}].{item['to_axis']}")
     for item in spec.get("field_replacements", []):
         view_id = str(item["view_id"])
         axis = str(item["axis"])

@@ -90,6 +90,8 @@ Visual hierarchy is also deterministic. Autopilot limits headline KPI cards, pre
 
 Field channels are adapter-driven rather than limited by captured template placeholders. Multi-series bar, line, area, scatter and radar charts dynamically construct every declared `y_axis` field; candlestick charts preserve four OHLC measures. Pivot tables keep dimensions in `xAxis` and measures in `yAxis`, while normal detail tables intentionally flatten columns. Bubble maps place the second measure in `extBubble`. Every adapter declares its supported measure count, and payload creation fails when a field is unsupported or missing from the final native channel instead of silently dropping it.
 
+For an automatically planned line chart, a recognized currency/amount measure paired with a recognized count/quantity measure is rendered with the second measure in `yAxisExt` (the right Y axis). This prevents values such as millions of currency units and thousands of orders from sharing one scale and making the count line appear as zero. A generated pivot table with more than one measure disables implicit row/column totals and subtotals by default, because an empty native totals configuration can render non-comparable totals as `-`. Explicit user-reviewed native total configuration remains authoritative.
+
 Typography uses the same component geometry instead of one canvas-wide font size. Every chart receives an independent title, legend, axis, label, indicator and table-cell budget. Long titles are compacted for display while the full title is retained in title metadata. User intent remains authoritative:
 
 ```json

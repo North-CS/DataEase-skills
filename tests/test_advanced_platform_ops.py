@@ -201,6 +201,24 @@ class AdvancedPlatformTests(unittest.TestCase):
                                  {"component_updates": [{"id": "11", "patch": {"id": "99"}}]})
         self.assertEqual(caught.exception.code, "unsafe_patch")
 
+    def test_visual_patch_moves_measure_to_secondary_y_axis(self) -> None:
+        detail = {
+            "componentData": '[{"id":"11","component":"UserView"}]',
+            "canvasStyleData": "{}",
+            "canvasViewInfo": {"11": {"id": "11", "yAxis": [
+                {"id": "target", "name": "目标额", "summary": "sum"},
+                {"id": "orders", "name": "订单量", "summary": "sum"},
+            ], "yAxisExt": []}},
+        }
+        spec = {"axis_moves": [{"view_id": "11", "from_axis": "yAxis", "to_axis": "yAxisExt", "index": 1}]}
+        patched, changes = patch_visual_payload(VisualClient(), detail, spec)
+        view = patched["canvasViewInfo"]["11"]
+        self.assertEqual([item["id"] for item in view["yAxis"]], ["target"])
+        self.assertEqual([item["id"] for item in view["yAxisExt"]], ["orders"])
+        self.assertEqual(view["yAxisExt"][0]["axisType"], "yAxisExt")
+        verify_visual_patch(patched, patched, spec, "before")
+        self.assertEqual(changes[0]["action"], "move-axis-field")
+
     def test_visual_patch_rebuilds_query_cascade_from_current_conditions(self) -> None:
         conditions = [
             {

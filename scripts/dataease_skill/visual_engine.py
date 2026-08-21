@@ -376,6 +376,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
         layout: dict[str, Any],
         title: str | None = None,
         y_aggregations: list[str] | None = None,
+        secondary_y_axis: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         adapter = chart_adapter(chart_type)
         max_y_fields = int(adapter.get("max_y_fields") or 1)
@@ -465,7 +466,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
             view_info["yAxis"] = []
         elif len(y_names) > 1:
             y_prototype = copy.deepcopy((view_info.get("yAxis") or [{}])[0])
-            secondary_channel = adapter.get("secondary_y_channel")
+            secondary_channel = "yAxisExt" if secondary_y_axis else adapter.get("secondary_y_channel")
             if secondary_channel:
                 view_info["yAxis"] = build_axis_fields(y_prototype, "YAXIS", y_names[:1])
                 secondary = build_axis_fields(
@@ -511,7 +512,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 str(item.get("id")) for item in view_info.get("yAxis", [])
                 if isinstance(item, dict)
             }
-            secondary_channel = adapter.get("secondary_y_channel")
+            secondary_channel = "yAxisExt" if secondary_y_axis else adapter.get("secondary_y_channel")
             if secondary_channel:
                 bound_y_ids.update(
                     str(item.get("id")) for item in view_info.get(str(secondary_channel), [])
@@ -729,6 +730,7 @@ class MultiDataEaseChartEngine(DataEaseChartEngine):
                 layout=layout,
                 title=config.get("title"),
                 y_aggregations=config.get("y_aggregations"),
+                secondary_y_axis=bool(config.get("secondary_y_axis")),
             )
             typography_policy = (
                 config.get("typography")

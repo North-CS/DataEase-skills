@@ -84,6 +84,21 @@ class FieldProfileTests(unittest.TestCase):
         self.assertEqual(detail["layout"]["sizeX"], 72)
         self.assertEqual(plan["kind"], "dashboard")
 
+    def test_amount_and_count_trend_requests_secondary_axis(self):
+        profile = {
+            "dataset": {"id": "sales", "name": "销售"},
+            "dimensions": [{"name": "区域"}],
+            "dates": [{"name": "日期"}],
+            "identifiers": [],
+            "measures": [
+                {"name": "目标额", "recommended_aggregation": "sum"},
+                {"name": "订单量", "recommended_aggregation": "sum"},
+            ],
+        }
+        plan = build_visual_plan(profile, "销售驾驶舱", "dataV")
+        trend = next(chart for chart in plan["charts"] if chart["type"] == "line")
+        self.assertTrue(trend["secondary_y_axis"])
+
     def test_autopilot_emits_explicit_cascade_for_reversed_hierarchy_fields(self):
         profile = {
             "dataset": {"id": "500", "name": "区域销售"},
